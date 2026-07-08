@@ -9,6 +9,15 @@ from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
 from crypto_engine.peks import generate_rsa_keypair
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from accounts.permissions import (
+    IsSuperAdministrator,
+    IsInternalAnalyst,
+    IsComplianceOfficer,
+    IsExternalAuditor,
+    IsReadOnlyAnalyst,
+    IsInternalUser,
+    IsAdministrator
+)
 
 
 from crypto_engine.peks import hash_keyword, verify_signature
@@ -39,6 +48,7 @@ MAX_INTERNAL_RESULTS = 50
 # ---------------------------------------------------
 
 class UploadDocumentView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsInternalAnalyst]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "upload"
 
@@ -93,6 +103,7 @@ class UploadDocumentView(APIView):
 # ---------------------------------------------------
 
 class InternalSearchView(APIView):
+    permission_classes = [IsAuthenticated, IsInternalUser | IsReadOnlyAnalyst]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "search"
 
@@ -180,6 +191,7 @@ class InternalSearchView(APIView):
 # ---------------------------------------------------
 
 class ExternalSearchView(APIView):
+    permission_classes = [IsAuthenticated, IsExternalAuditor | IsSuperAdministrator]
 
     def post(self, request):
         total_start = time.perf_counter()
@@ -323,6 +335,7 @@ class ExternalSearchView(APIView):
         )
 
 class RotateAuditorKeyView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
 
     def post(self, request):
         auditor_id = request.data.get("auditor_id")
@@ -360,6 +373,7 @@ class RotateAuditorKeyView(APIView):
 
 
 class VerifyAuditorCredentialsView(APIView):
+    permission_classes = [IsAuthenticated, IsExternalAuditor | IsSuperAdministrator]
 
     def post(self, request):
         auditor_id = request.data.get("auditor_id")
@@ -402,6 +416,7 @@ class VerifyAuditorCredentialsView(APIView):
         )
 
 class AuditorLogsView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
 
     def get(self, request, auditor_id):
 
@@ -439,6 +454,7 @@ class AuditorLogsView(APIView):
         )
     
 class InternalMetricsView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
 
     def get(self, request):
         try:
@@ -514,6 +530,7 @@ class InternalMetricsView(APIView):
         return Response(status=status.HTTP_200_OK)
 
 class ExternalMetricsView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         try:
@@ -532,7 +549,7 @@ class ExternalMetricsView(APIView):
             )
 
 class RotateAuditorKeyView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
 
     def post(self, request):
         auditor_id = request.data.get("auditor_id")
@@ -571,6 +588,7 @@ class RotateAuditorKeyView(APIView):
         )
     
 class CreateAuditorView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
 
     def post(self, request):
         name = request.data.get("name")
@@ -604,6 +622,7 @@ class CreateAuditorView(APIView):
         )
 
 class DeleteAuditorView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
 
     def delete(self, request, auditor_id):
         try:
