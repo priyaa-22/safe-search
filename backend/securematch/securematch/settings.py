@@ -4,6 +4,7 @@ Django settings for securematch project.
 
 from pathlib import Path
 import os
+from datetime import timedelta
 from dotenv import load_dotenv
 
 # --------------------------------------------------
@@ -45,9 +46,11 @@ INSTALLED_APPS = [
 
     "corsheaders",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
 
     "crypto_engine",
     "documents",
+    "accounts",
 ]
 
 MIDDLEWARE = [
@@ -155,11 +158,37 @@ CORS_ALLOW_CREDENTIALS = True
 # --------------------------------------------------
 
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.ScopedRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "search": "10/minute",   # Max 10 search requests per minute per IP
         "upload": "200/minute",    # Max 5 uploads per minute per IP
+        "login": "5/minute",       # Max 5 login requests per minute per IP
     },
+    "EXCEPTION_HANDLER": "accounts.exception_handler.custom_exception_handler",
+}
+
+# --------------------------------------------------
+# Authentication & Custom User Model
+# --------------------------------------------------
+
+AUTH_USER_MODEL = "accounts.User"
+
+# --------------------------------------------------
+# JWT Configuration (Simple JWT)
+# --------------------------------------------------
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
 }

@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
 from crypto_engine.peks import generate_rsa_keypair
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 
 from crypto_engine.peks import hash_keyword, verify_signature
@@ -532,7 +532,7 @@ class ExternalMetricsView(APIView):
             )
 
 class RotateAuditorKeyView(APIView):
-    permission_classes = [AllowAny]  # tighten later if needed
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         auditor_id = request.data.get("auditor_id")
