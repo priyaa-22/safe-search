@@ -645,11 +645,11 @@ export default function App() {
   } else if (currentPath === "/admin/iam") {
     adminPageContent = <AdminIAM showToast={showToast} />;
   } else if (currentPath === "/admin/auditors") {
-    adminPageContent = <AdminAuditors />;
+    adminPageContent = <AdminAuditors showToast={showToast} />;
   } else if (currentPath === "/admin/documents") {
-    adminPageContent = <AdminDocuments />;
+    adminPageContent = <AdminDocuments showToast={showToast} />;
   } else if (currentPath === "/admin/search") {
-    adminPageContent = <AdminSearch />;
+    adminPageContent = <AdminSearch showToast={showToast} />;
   } else if (currentPath === "/admin/metrics") {
     adminPageContent = <AdminMetrics />;
   } else if (currentPath === "/admin/settings") {

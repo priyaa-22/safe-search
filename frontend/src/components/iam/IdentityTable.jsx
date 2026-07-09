@@ -9,7 +9,7 @@ export default function IdentityTable({
   onDelete,
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm font-sans">
+    <div className="border border-gray-200 rounded-2xl overflow-hidden font-sans">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-sm">
           <thead>

@@ -74,63 +74,62 @@ export default function IAM({ showToast }) {
       <PageHeader
         title="Identity & Access Management"
         description="Manage SecureMatch identities, assigned roles and platform access."
-      >
-        <button
-          onClick={() => {
-            setModalMode("create");
-            setSelectedIdentity(null);
-            setModalOpen(true);
-          }}
-          className="flex items-center gap-2 bg-black hover:bg-gray-900 text-white font-medium py-2.5 px-4 rounded-xl transition cursor-pointer text-sm shadow-sm"
-          type="button"
-        >
-          <Plus className="w-4 h-4" />
-          Create Identity
-        </button>
-      </PageHeader>
+      />
 
-      {/* Search & Filter Toolbar */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <IdentitySearch value={searchQuery} onChange={setSearchQuery} />
-        <IdentityFilters
-          selectedRole={selectedRole}
-          onRoleChange={setSelectedRole}
-          selectedStatus={selectedStatus}
-          onStatusChange={setSelectedStatus}
-          onReset={handleResetFilters}
-        />
-      </div>
-
-      {/* Main Grid View */}
-      {loading ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
-          <LoadingSkeleton />
+      <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-gray-100 mb-6">
+          <IdentitySearch value={searchQuery} onChange={setSearchQuery} />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <IdentityFilters
+              selectedRole={selectedRole}
+              onRoleChange={setSelectedRole}
+              selectedStatus={selectedStatus}
+              onStatusChange={setSelectedStatus}
+              onReset={handleResetFilters}
+            />
+            <button
+              onClick={() => {
+                setModalMode("create");
+                setSelectedIdentity(null);
+                setModalOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 bg-black hover:bg-gray-900 text-white font-medium py-2.5 px-4 rounded-xl transition cursor-pointer text-sm"
+              type="button"
+            >
+              <Plus className="w-4 h-4" />
+              Create Identity
+            </button>
+          </div>
         </div>
-      ) : identities.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <IdentityTable
-          identities={identities}
-          onView={(identity) => {
-            setModalMode("view");
-            setSelectedIdentity(identity);
-            setModalOpen(true);
-          }}
-          onEdit={(identity) => {
-            setModalMode("edit");
-            setSelectedIdentity(identity);
-            setModalOpen(true);
-          }}
-          onToggleDisable={(identity) => {
-            setSelectedIdentity(identity);
-            setDisableDialogOpen(true);
-          }}
-          onDelete={(identity) => {
-            setSelectedIdentity(identity);
-            setDeleteDialogOpen(true);
-          }}
-        />
-      )}
+
+        {loading ? (
+          <LoadingSkeleton />
+        ) : identities.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <IdentityTable
+            identities={identities}
+            onView={(identity) => {
+              setModalMode("view");
+              setSelectedIdentity(identity);
+              setModalOpen(true);
+            }}
+            onEdit={(identity) => {
+              setModalMode("edit");
+              setSelectedIdentity(identity);
+              setModalOpen(true);
+            }}
+            onToggleDisable={(identity) => {
+              setSelectedIdentity(identity);
+              setDisableDialogOpen(true);
+            }}
+            onDelete={(identity) => {
+              setSelectedIdentity(identity);
+              setDeleteDialogOpen(true);
+            }}
+          />
+        )}
+      </div>
 
       {/* Identity Configuration Modal */}
       <IdentityModal
