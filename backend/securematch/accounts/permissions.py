@@ -1,56 +1,64 @@
 from rest_framework.permissions import BasePermission
-from accounts.constants import (
-    SUPER_ADMIN,
-    INTERNAL_ANALYST,
-    COMPLIANCE_OFFICER,
-    EXTERNAL_AUDITOR,
-    READ_ONLY_ANALYST,
+from accounts.constants import Roles
+from accounts.utils import (
+    has_role,
+    is_administrator,
+    is_internal_user,
+    is_external_auditor,
 )
-from accounts.utils import has_any_role
 
 
-class BaseRolePermission(BasePermission):
+class IsSuperAdministrator(BasePermission):
     """
-    Base class for role-based authorization to avoid duplicated role-checking logic.
+    Allows Administrator only.
     """
-    allowed_roles = []
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        return has_any_role(request.user, self.allowed_roles)
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and is_administrator(request.user))
 
 
-class IsSuperAdministrator(BaseRolePermission):
-    allowed_roles = [SUPER_ADMIN]
-
-
-class IsInternalAnalyst(BaseRolePermission):
-    allowed_roles = [INTERNAL_ANALYST]
-
-
-class IsComplianceOfficer(BaseRolePermission):
-    allowed_roles = [COMPLIANCE_OFFICER]
-
-
-class IsExternalAuditor(BaseRolePermission):
-    allowed_roles = [EXTERNAL_AUDITOR]
-
-
-class IsReadOnlyAnalyst(BaseRolePermission):
-    allowed_roles = [READ_ONLY_ANALYST]
-
-
-# Reusable helper permissions
-class IsInternalUser(BaseRolePermission):
+class IsAdministrator(BasePermission):
     """
-    Allows Internal Analyst, Compliance Officer, and Super Administrator.
+    Allows Administrator only.
     """
-    allowed_roles = [INTERNAL_ANALYST, COMPLIANCE_OFFICER, SUPER_ADMIN]
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and is_administrator(request.user))
 
 
-class IsAdministrator(BaseRolePermission):
+class IsInternalAnalyst(BasePermission):
     """
-    Allows Super Administrator only.
+    Allows Internal Analyst only.
     """
-    allowed_roles = [SUPER_ADMIN]
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and has_role(request.user, Roles.INTERNAL_ANALYST))
+
+
+class IsComplianceOfficer(BasePermission):
+    """
+    Allows Compliance Officer only.
+    """
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and has_role(request.user, Roles.COMPLIANCE_OFFICER))
+
+
+class IsExternalAuditor(BasePermission):
+    """
+    Allows External Auditor only.
+    """
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and is_external_auditor(request.user))
+
+
+class IsReadOnlyAnalyst(BasePermission):
+    """
+    Allows Read Only Analyst only.
+    """
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and has_role(request.user, Roles.READ_ONLY_ANALYST))
+
+
+class IsInternalUser(BasePermission):
+    """
+    Allows Internal Analyst, Compliance Officer, Read Only Analyst, and Administrator.
+    """
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and is_internal_user(request.user))

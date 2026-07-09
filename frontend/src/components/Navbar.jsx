@@ -3,7 +3,8 @@ import React, { useState } from "react";
 export default function Navbar({ activeTab, setActiveTab, role, logout }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const isInternal = role === "internal";
+  const isInternal = role === "internal" || role === "admin";
+
 
   return (
     <nav className="w-full sticky top-0 z-50 bg-white border-b border-gray-200/80 shadow-sm text-slate-700">
@@ -43,10 +44,10 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
               <TabButton
                 active={activeTab === "upload"}
                 onClick={() => setActiveTab("upload")}
-                label="Upload"
+                label="Encrypted Documents"
                 icon={
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 03-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
                 }
               />
@@ -66,7 +67,7 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
           <TabButton
             active={activeTab === "search"}
             onClick={() => setActiveTab("search")}
-            label="Search"
+            label="Search Operations"
             icon={
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -77,7 +78,7 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
           <TabButton
             active={activeTab === "metrics"}
             onClick={() => setActiveTab("metrics")}
-            label="Metrics"
+            label="Security Analytics"
             icon={
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10a2 2 0 01-2 2h-2a2 2 0 01-2-2zm9-7H16a2 2 0 00-2 2v4a2 2 0 002 2h2a2 2 0 002-2v-4a2 2 0 00-2-2z" />
@@ -88,11 +89,13 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
           <div className="h-5 w-[1px] bg-gray-200 mx-3"></div>
 
           <span className={`text-xs px-3 py-1.5 rounded-xl font-medium border ${
-            isInternal 
+            role === "admin"
+              ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+              : isInternal 
               ? "bg-blue-50 border-blue-200 text-blue-700"
               : "bg-emerald-50 border-emerald-200 text-emerald-700"
           }`}>
-            {isInternal ? "Internal Analyst" : "External Auditor"}
+            {role === "admin" ? "Super Administrator" : isInternal ? "Internal Analyst" : "External Auditor"}
           </span>
 
           <button
@@ -129,7 +132,7 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
                   setActiveTab("upload");
                   setMenuOpen(false);
                 }}
-                label="Upload"
+                label="Encrypted Documents"
               />
               <MobileTabButton
                 active={activeTab === "storage"}
@@ -148,7 +151,7 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
               setActiveTab("search");
               setMenuOpen(false);
             }}
-            label="Search"
+            label="Search Operations"
           />
 
           <MobileTabButton
@@ -157,16 +160,18 @@ export default function Navbar({ activeTab, setActiveTab, role, logout }) {
               setActiveTab("metrics");
               setMenuOpen(false);
             }}
-            label="Metrics"
+            label="Security Analytics"
           />
 
           <div className="border-t border-gray-200 pt-3 flex flex-col gap-2">
             <span className={`text-xs text-center py-2 rounded-lg font-medium border ${
-              isInternal 
+              role === "admin"
+                ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                : isInternal 
                 ? "bg-blue-50 border-blue-200 text-blue-700"
                 : "bg-emerald-50 border-emerald-200 text-emerald-700"
             }`}>
-              {isInternal ? "Internal Analyst" : "External Auditor"}
+              {role === "admin" ? "Super Administrator" : isInternal ? "Internal Analyst" : "External Auditor"}
             </span>
 
             <button

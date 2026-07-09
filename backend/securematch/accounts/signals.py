@@ -1,21 +1,10 @@
-from django.db.models.signals import post_migrate
 from django.contrib.auth.models import Group
-from accounts.constants import (
-    SUPER_ADMIN,
-    INTERNAL_ANALYST,
-    COMPLIANCE_OFFICER,
-    EXTERNAL_AUDITOR,
-    READ_ONLY_ANALYST,
-)
+from accounts.constants import Roles
 
 
 def create_default_groups(sender, **kwargs):
-    group_names = [
-        SUPER_ADMIN,
-        INTERNAL_ANALYST,
-        COMPLIANCE_OFFICER,
-        EXTERNAL_AUDITOR,
-        READ_ONLY_ANALYST,
-    ]
-    for name in group_names:
+    """
+    Automatically creates Django groups for roles in Roles.all() after database migrations.
+    """
+    for name in Roles.all():
         Group.objects.get_or_create(name=name)

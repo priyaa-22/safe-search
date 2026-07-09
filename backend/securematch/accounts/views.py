@@ -1,4 +1,5 @@
-from django.contrib.auth import authenticate, update_session_auth_hash
+from django.contrib.auth import authenticate, update_session_auth_hash, get_user_model
+from django.contrib.auth.models import Group
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,7 +9,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
 from documents.utils import success_response, error_response
+from accounts.utils import is_administrator, get_primary_role
+from accounts.constants import Roles
 from .serializers import UserSerializer, LoginSerializer, ChangePasswordSerializer
+
+User = get_user_model()
+
 
 class LoginView(APIView):
     """
@@ -145,4 +151,277 @@ class ChangePasswordView(APIView):
         return Response(
             success_response(data={"message": "Password has been changed successfully."}),
             status=status.HTTP_200_OK,
+        )
+
+
+class UserManagementView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if not is_administrator(request.user):
+            self.permission_denied(
+                request,
+                message="Access denied: Insufficient privileges.",
+                code="PERMISSION_DENIED"
+            )
+
+    def get(self, request, *args, **kwargs):
+        """
+        GET /api/users/
+        Returns list of all users.
+        """
+        users = User.objects.all().order_by("-created_at")
+        
+        # Serialize users
+        data = []
+        for user in users:
+            role = get_primary_role(user)
+            # Standardizing lastLogin format for frontend
+            last_login_str = "Never"
+            if user.last_login:
+                last_login_str = user.last_login.strftime("%Y-%m-%d %H:%M")
+                
+            data.append({
+                "id": user.id,
+                "username": user.username,
+                "fullName": f"{user.first_name} {user.last_name}".strip() or user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "email": user.email or "",
+                "role": role,
+                "status": "Active" if user.is_active else "Disabled",
+                "lastLogin": last_login_str,
+                "created": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+            })
+            
+        return Response(success_response(data=data), status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        """
+        POST /api/users/
+        Creates a new user.
+        """
+        # Validate fields
+        username = request.data.get("username")
+        fullName = request.data.get("fullName", "")
+        email = request.data.get("email")
+        password = request.data.get("password")
+        role = request.data.get("role")
+
+        if not username or not password or not role:
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Username, password, and role are required.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if User.objects.filter(username=username).exists():
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Username already exists.",
+                    details={"username": ["A user with that username already exists."]}
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Block Administrator from being created via this endpoint
+        if role == Roles.ADMINISTRATOR:
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Cannot create an Administrator user.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Create user
+        name_parts = fullName.strip().split(" ", 1)
+        first_name = name_parts[0] if len(name_parts) > 0 else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+            is_active=True
+        )
+
+        # Set role/group
+        group, _ = Group.objects.get_or_create(name=role)
+        user.groups.add(group)
+
+        # Return serialized user
+        data = {
+            "id": user.id,
+            "username": user.username,
+            "fullName": f"{user.first_name} {user.last_name}".strip() or user.username,
+            "email": user.email or "",
+            "role": role,
+            "status": "Active" if user.is_active else "Disabled",
+            "lastLogin": "Never",
+            "created": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+        }
+        return Response(success_response(data=data), status=status.HTTP_201_CREATED)
+
+
+class UserDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if not is_administrator(request.user):
+            self.permission_denied(
+                request,
+                message="Access denied: Insufficient privileges.",
+                code="PERMISSION_DENIED"
+            )
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        GET /api/users/{id}/
+        Returns details of a user.
+        """
+        try:
+            user = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response(
+                error_response(
+                    code="NOT_FOUND",
+                    message="User not found.",
+                ),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        role = get_primary_role(user)
+        last_login_str = "Never"
+        if user.last_login:
+            last_login_str = user.last_login.strftime("%Y-%m-%d %H:%M")
+
+        data = {
+            "id": user.id,
+            "username": user.username,
+            "fullName": f"{user.first_name} {user.last_name}".strip() or user.username,
+            "email": user.email or "",
+            "role": role,
+            "status": "Active" if user.is_active else "Disabled",
+            "lastLogin": last_login_str,
+            "created": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+        }
+        return Response(success_response(data=data), status=status.HTTP_200_OK)
+
+    def patch(self, request, pk, *args, **kwargs):
+        """
+        PATCH /api/users/{id}/
+        Updates a user.
+        """
+        try:
+            user = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response(
+                error_response(
+                    code="NOT_FOUND",
+                    message="User not found.",
+                ),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Validate updating Administrator users or setting someone to Administrator
+        role = request.data.get("role")
+        current_role = get_primary_role(user)
+
+        # Block editing/modifying Administrator from IAM
+        if current_role == Roles.ADMINISTRATOR or role == Roles.ADMINISTRATOR:
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Administrator users cannot be modified via the IAM portal.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Update fields
+        fullName = request.data.get("fullName")
+        if fullName is not None:
+            name_parts = fullName.strip().split(" ", 1)
+            user.first_name = name_parts[0] if len(name_parts) > 0 else ""
+            user.last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        email = request.data.get("email")
+        if email is not None:
+            user.email = email
+
+        status_val = request.data.get("status")
+        if status_val is not None:
+            user.is_active = (status_val == "Active")
+
+        # Update role/group
+        if role is not None:
+            user.groups.clear()
+            group, _ = Group.objects.get_or_create(name=role)
+            user.groups.add(group)
+
+        # Update password if provided
+        password = request.data.get("password")
+        if password:
+            user.set_password(password)
+
+        user.save()
+
+        # Invalidate cache
+        if hasattr(user, "_cached_primary_role"):
+            delattr(user, "_cached_primary_role")
+
+        last_login_str = "Never"
+        if user.last_login:
+            last_login_str = user.last_login.strftime("%Y-%m-%d %H:%M")
+
+        data = {
+            "id": user.id,
+            "username": user.username,
+            "fullName": f"{user.first_name} {user.last_name}".strip() or user.username,
+            "email": user.email or "",
+            "role": get_primary_role(user),
+            "status": "Active" if user.is_active else "Disabled",
+            "lastLogin": last_login_str,
+            "created": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+        }
+        return Response(success_response(data=data), status=status.HTTP_200_OK)
+
+    def delete(self, request, pk, *args, **kwargs):
+        """
+        DELETE /api/users/{id}/
+        Deletes a user.
+        """
+        try:
+            user = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response(
+                error_response(
+                    code="NOT_FOUND",
+                    message="User not found.",
+                ),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Block deleting Administrator users
+        current_role = get_primary_role(user)
+        if current_role == Roles.ADMINISTRATOR:
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Administrator users cannot be deleted.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.delete()
+        return Response(
+            success_response(data={"message": "User deleted successfully."}),
+            status=status.HTTP_200_OK
         )

@@ -4,13 +4,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework import status
 from documents.models import Auditor
-from accounts.constants import (
-    SUPER_ADMIN,
-    INTERNAL_ANALYST,
-    COMPLIANCE_OFFICER,
-    EXTERNAL_AUDITOR,
-    READ_ONLY_ANALYST,
-)
+from accounts.constants import Roles
 
 User = get_user_model()
 
@@ -19,11 +13,11 @@ class RBACTests(TestCase):
         self.client = APIClient()
         
         # Resolve or create default groups (created by signals automatically, but get_or_create to be safe)
-        self.super_admin_group, _ = Group.objects.get_or_create(name=SUPER_ADMIN)
-        self.internal_analyst_group, _ = Group.objects.get_or_create(name=INTERNAL_ANALYST)
-        self.compliance_officer_group, _ = Group.objects.get_or_create(name=COMPLIANCE_OFFICER)
-        self.external_auditor_group, _ = Group.objects.get_or_create(name=EXTERNAL_AUDITOR)
-        self.read_only_analyst_group, _ = Group.objects.get_or_create(name=READ_ONLY_ANALYST)
+        self.super_admin_group, _ = Group.objects.get_or_create(name=Roles.ADMINISTRATOR)
+        self.internal_analyst_group, _ = Group.objects.get_or_create(name=Roles.INTERNAL_ANALYST)
+        self.compliance_officer_group, _ = Group.objects.get_or_create(name=Roles.COMPLIANCE_OFFICER)
+        self.external_auditor_group, _ = Group.objects.get_or_create(name=Roles.EXTERNAL_AUDITOR)
+        self.read_only_analyst_group, _ = Group.objects.get_or_create(name=Roles.READ_ONLY_ANALYST)
 
         # Create users for each role
         self.super_admin = User.objects.create_user(username="super_admin", password="password123")

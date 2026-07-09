@@ -1,28 +1,83 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "./services/api";
 import Dashboard from "./pages/Dashboard";
 import Toast from "./components/Toast";
 import { Spinner } from "./components/Loader";
 import { sha256Hex, signHashHex, verifySignatureHex } from "./utils/crypto";
 import { handleApiError } from "./utils/errorHandler";
+import { useAuth } from "./context/AuthContext";
+import ProtectedRoute from "./routes/ProtectedRoute";
+import RoleRoute from "./routes/RoleRoute";
+import PermissionRoute from "./routes/PermissionRoute";
+import { Roles } from "./constants/roles";
+import { hasRole, hasAnyRole, getRoleFromUser } from "./config/permissions";
+
+// Admin Dashboard Components & Pages
+import AdminLayout from "./layouts/AdminLayout";
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminIAM from "./pages/admin/IAM";
+import AdminAuditors from "./pages/admin/Auditors";
+import AdminMetrics from "./pages/admin/Metrics";
+import AdminProfile from "./pages/admin/Profile";
+import AdminDocuments from "./pages/admin/Documents";
+import AdminSearch from "./pages/admin/Search";
+import AdminSettings from "./pages/admin/Settings";
 
 export default function App() {
-  const [role, setRole] = useState(null);
+  const { login: authLogin, logout: authLogout, isLoading } = useAuth();
+
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  const navigate = (path) => {
+    window.history.pushState(null, "", path);
+    setCurrentPath(path);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  const [role, setRole] = useState(() => {
+    const saved = localStorage.getItem("roleState");
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [usernameInput, setUsernameInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+
   const [externalAuditors, setExternalAuditors] = useState([]);
   const [selectedAuditor, setSelectedAuditor] = useState(null);
   const [privateKeyInput, setPrivateKeyInput] = useState("");
   const [loadingAuditors, setLoadingAuditors] = useState(false);
   const [toast, setToast] = useState(null);
 
+  const updateRoleState = (newRole) => {
+    setRole(newRole);
+    if (newRole) {
+      localStorage.setItem("roleState", JSON.stringify(newRole));
+    } else {
+      localStorage.removeItem("roleState");
+    }
+  };
+
   const showToast = (message, type = "info") => {
     setToast({ message, type });
   };
 
-  const logout = () => {
-    setRole(null);
+  const logout = async () => {
+    await authLogout();
+    updateRoleState(null);
     setSelectedAuditor(null);
     setPrivateKeyInput("");
     showToast("Logged out successfully", "info");
+    navigate("/");
   };
 
   const fetchAuditors = async () => {
@@ -39,6 +94,99 @@ export default function App() {
       return [];
     } finally {
       setLoadingAuditors(false);
+    }
+  };
+
+  const handleAdminLogin = async () => {
+    if (!usernameInput.trim() || !passwordInput.trim()) {
+      showToast("Username and password required", "warning");
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const res = await authLogin(usernameInput, passwordInput);
+      if (res.success) {
+        if (!hasRole(res.user, Roles.ADMINISTRATOR)) {
+          showToast("Access denied: You do not have Super Administrator privileges", "error");
+          await authLogout();
+          return;
+        }
+
+        updateRoleState({ type: "admin" });
+        showToast("Logged in as Super Administrator", "success");
+        setUsernameInput("");
+        setPasswordInput("");
+        navigate("/admin");
+      }
+    } catch (err) {
+      console.error(err);
+      const { message } = handleApiError(err);
+      showToast(message || "Invalid username or password", "error");
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleInternalLogin = async () => {
+    if (!usernameInput.trim() || !passwordInput.trim()) {
+      showToast("Username and password required", "warning");
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const res = await authLogin(usernameInput, passwordInput);
+      if (res.success) {
+        const allowedRoles = [Roles.INTERNAL_ANALYST, Roles.COMPLIANCE_OFFICER, Roles.READ_ONLY_ANALYST];
+        if (!hasAnyRole(res.user, allowedRoles)) {
+          showToast("Access denied: This portal is for internal operational teams only", "error");
+          await authLogout();
+          return;
+        }
+
+        updateRoleState({ type: "internal" });
+        showToast(`Logged in to Internal Portal as ${getRoleFromUser(res.user)}`, "success");
+        setUsernameInput("");
+        setPasswordInput("");
+      }
+    } catch (err) {
+      console.error(err);
+      const { message } = handleApiError(err);
+      showToast(message || "Invalid username or password", "error");
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleExternalLogin = async () => {
+    if (!usernameInput.trim() || !passwordInput.trim()) {
+      showToast("Username and password required", "warning");
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const res = await authLogin(usernameInput, passwordInput);
+      if (res.success) {
+        if (!hasRole(res.user, Roles.EXTERNAL_AUDITOR)) {
+          showToast("Access denied: Please use the External Auditor portal", "error");
+          await authLogout();
+          return;
+        }
+
+        updateRoleState({ type: "external_select" });
+        showToast("Authentication successful", "success");
+        setUsernameInput("");
+        setPasswordInput("");
+        await fetchAuditors();
+      }
+    } catch (err) {
+      console.error(err);
+      const { message } = handleApiError(err);
+      showToast(message || "Invalid username or password", "error");
+    } finally {
+      setLoggingIn(false);
     }
   };
 
@@ -106,7 +254,7 @@ export default function App() {
 
       setSelectedAuditor(verifiedAuditor);
 
-      setRole({
+      updateRoleState({
         type: "external",
         auditor: verifiedAuditor,
         privateKey: privateKeyInput,
@@ -120,252 +268,426 @@ export default function App() {
     }
   };
 
-  // ===============================
-  // ENTRY SCREEN
-  // ===============================
-  if (!role) {
+  // Sync Axios auto-logout with App role state
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      updateRoleState(null);
+      setSelectedAuditor(null);
+      setPrivateKeyInput("");
+    };
+    window.addEventListener("auth-logout", handleAuthLogout);
+    return () => {
+      window.removeEventListener("auth-logout", handleAuthLogout);
+    };
+  }, []);
+
+  const { user: authUser, isAuthenticated: isUserAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (isUserAuthenticated && authUser) {
+      const isPathAdmin = currentPath.startsWith("/admin");
+      const isAdmin = hasRole(authUser, Roles.ADMINISTRATOR);
+
+      console.log(`[TEMP][App.jsx] Path checking: isPathAdmin=${isPathAdmin}, isAdmin=${isAdmin}, userRole=${getRoleFromUser(authUser)}`);
+
+      if (isPathAdmin && !isAdmin) {
+        showToast("Access denied: You do not have Super Administrator privileges", "error");
+        logout();
+      } else if (!isPathAdmin && isAdmin) {
+        navigate("/admin");
+      }
+    }
+  }, [isUserAuthenticated, authUser, currentPath]);
+
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 py-12 relative">
-        
-        {/* Loading Bar when clicking Auditor Portal */}
-        {loadingAuditors && (
-          <div className="absolute top-0 left-0 w-full h-1.5 bg-blue-100 overflow-hidden z-50">
-            <div className="h-full bg-blue-600 animate-loader w-1/3 rounded-r"></div>
-          </div>
-        )}
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Spinner text="Loading..." />
+      </div>
+    );
+  }
 
-        <div className="text-center mb-10">
-          <div className="w-14 h-14 bg-blue-650 bg-blue-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-md">
-            <svg
-              className="w-7 h-7 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2.5"
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-              />
-            </svg>
-          </div>
-          <h1 className="text-3xl font-bold mb-2 text-gray-900">
-            Secure Encrypted Search System
-          </h1>
-          <p className="text-gray-500 max-w-md mx-auto text-sm">
-            AES-256 Encryption • HMAC Trapdoors • SSE/PEKS Protocol
-          </p>
-        </div>
+  // ===============================
+  // AUTH SCREENS ROUTING
+  // ===============================
+  const renderAuthScreens = () => {
+    const isAdminPath = currentPath.startsWith("/admin");
+    const showAdminLogin = isAdminPath || (role && role.type === "admin_login");
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl w-full">
-          {/* INTERNAL */}
-          <div className="bg-white border rounded-2xl p-8 shadow-sm flex flex-col justify-between group hover:border-blue-500/50 transition">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Internal Analyst
-              </h2>
-              <p className="text-gray-500 text-sm mb-5">
-                Full system access with decryption privileges
-              </p>
-
-              <ul className="text-sm space-y-3 mb-6 text-gray-600">
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                  Upload encrypted documents
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                  View encrypted storage
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                  Search with decryption (SSE)
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                  Access system metrics
-                </li>
-              </ul>
+    // 2. Admin Login Form (checks both route and role state)
+    if (showAdminLogin) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+          <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md shadow-sm font-sans">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Super Administrator Login</h2>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Provide your username and password credentials to access the administrative portal.</p>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Username</p>
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm focus:border-black focus:outline-none text-gray-800"
+                  placeholder="Enter admin username"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Password</p>
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm focus:border-black focus:outline-none text-gray-800"
+                  placeholder="Enter admin password"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAdminLogin();
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleAdminLogin}
+                disabled={loggingIn}
+                className="w-full bg-black hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                {loggingIn ? "Logging in..." : "Login"}
+              </button>
             </div>
+            <button
+              onClick={() => {
+                setUsernameInput("");
+                setPasswordInput("");
+                if (currentPath.startsWith("/admin")) {
+                  navigate("/");
+                }
+                updateRoleState(null);
+              }}
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition cursor-pointer font-medium"
+            >
+              ← Back
+            </button>
+          </div>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // 1. Entry Screen (3-Portal Layout)
+    if (!role) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 py-12 relative font-sans">
+          <div className="text-center mb-10">
+            <div className="w-14 h-14 bg-blue-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-md">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold mb-2 text-gray-900">Secure Encrypted Search System</h1>
+            <p className="text-gray-500 max-w-md mx-auto text-sm">AES-256 Encryption • HMAC Trapdoors • SSE/PEKS Protocol</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl w-full">
+            {/* PORTAL 1: SUPER ADMINISTRATOR */}
+            <div className="bg-white border rounded-2xl p-8 shadow-sm flex flex-col justify-between group hover:border-blue-500/50 transition">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Super Administrator</h2>
+                <p className="text-gray-500 text-sm mb-5">Complete administrative access to SecureMatch.</p>
+                <ul className="text-sm space-y-3 mb-6 text-gray-600">
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>User Management</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Auditor Management</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>System Metrics</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Full Administrative Access</li>
+                </ul>
+              </div>
+              <button
+                onClick={() => updateRoleState({ type: "admin_login" })}
+                className="w-full bg-black hover:bg-gray-900 text-white font-medium py-2.5 rounded-xl transition cursor-pointer"
+              >
+                Continue to Admin Portal
+              </button>
+            </div>
+
+            {/* PORTAL 2: INTERNAL PORTAL */}
+            <div className="bg-white border rounded-2xl p-8 shadow-sm flex flex-col justify-between group hover:border-blue-500/50 transition">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Internal Portal</h2>
+                <p className="text-gray-500 text-sm mb-5">Secure operational workspace for internal teams.</p>
+                <ul className="text-sm space-y-3 mb-6 text-gray-600">
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Upload encrypted documents</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Internal encrypted search (SSE)</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>View encrypted storage</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Access internal metrics</li>
+                </ul>
+              </div>
+              <button
+                onClick={() => updateRoleState({ type: "internal_login" })}
+                className="w-full bg-black hover:bg-gray-900 text-white font-medium py-2.5 rounded-xl transition cursor-pointer"
+              >
+                Continue to Internal Portal
+              </button>
+            </div>
+
+            {/* PORTAL 3: EXTERNAL AUDITOR PORTAL */}
+            <div className="bg-white border rounded-2xl p-8 shadow-sm flex flex-col justify-between group hover:border-emerald-500/50 transition">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">External Auditor Portal</h2>
+                <p className="text-gray-500 text-sm mb-5">Secure search-only workspace for authorized auditors.</p>
+                <ul className="text-sm space-y-3 mb-6 text-gray-600">
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>PEKS Search</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>Limited Metrics</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>Secure Auditor Access</li>
+                </ul>
+              </div>
+              <button
+                onClick={() => updateRoleState({ type: "external_login" })}
+                className="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                Continue to Auditor Portal
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 mt-10 text-center max-w-xl font-mono">Role-Based Access Control • SSE • PEKS</p>
+
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // 3. Internal Login Form
+    if (role.type === "internal_login") {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+          <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md shadow-sm">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Internal Analyst Login</h2>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Provide your username and password credentials to access the operational portal.</p>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Username</p>
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm focus:border-black focus:outline-none text-gray-800"
+                  placeholder="Enter username"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Password</p>
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm focus:border-black focus:outline-none text-gray-800"
+                  placeholder="Enter password"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleInternalLogin();
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleInternalLogin}
+                disabled={loggingIn}
+                className="w-full bg-black hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                {loggingIn ? "Logging in..." : "Login"}
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setUsernameInput("");
+                setPasswordInput("");
+                updateRoleState(null);
+              }}
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition cursor-pointer font-medium"
+            >
+              ← Back
+            </button>
+          </div>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // 4. External Login Form
+    if (role.type === "external_login") {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+          <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md shadow-sm">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">External Auditor Login</h2>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Provide your credentials to authenticate and select your auditor identity.</p>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Username</p>
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm focus:border-black focus:outline-none text-gray-800"
+                  placeholder="Enter username"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Password</p>
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-sm focus:border-black focus:outline-none text-gray-800"
+                  placeholder="Enter password"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleExternalLogin();
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleExternalLogin}
+                disabled={loggingIn}
+                className="w-full bg-black hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                {loggingIn ? "Logging in..." : "Login"}
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setUsernameInput("");
+                setPasswordInput("");
+                updateRoleState(null);
+              }}
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition cursor-pointer font-medium"
+            >
+              ← Back
+            </button>
+          </div>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // 5. External Select Screen
+    if (role.type === "external_select") {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+          <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md shadow-sm">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Auditor Identity</h2>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Choose your registered identity and provide the matching private key credentials.</p>
+
+            {loadingAuditors ? (
+              <div className="py-8"><Spinner text="Loading auditor registry..." /></div>
+            ) : externalAuditors.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-6 border border-dashed rounded-xl">No auditors available.</p>
+            ) : (
+              <div className="space-y-2 mb-6">
+                {externalAuditors.map((auditor) => (
+                  <button
+                    key={auditor.auditor_id}
+                    onClick={() => setSelectedAuditor(auditor)}
+                    className={`w-full border text-left px-4 py-3 rounded-xl transition text-sm flex justify-between items-center cursor-pointer ${
+                      selectedAuditor?.auditor_id === auditor.auditor_id
+                        ? "bg-gray-100 border-black text-black font-semibold"
+                        : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span>{auditor.name}</span>
+                    <span className="text-[10px] bg-gray-150 border px-2 py-0.5 rounded text-gray-500 uppercase font-mono">
+                      Ver {auditor.active_key_version}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedAuditor && (
+              <div className="space-y-4 animate-[fadeIn_0.2s_ease-out]">
+                <div className="space-y-1.5">
+                  <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">Auditor Private Key</p>
+                  <textarea
+                    value={privateKeyInput}
+                    onChange={(e) => setPrivateKeyInput(e.target.value)}
+                    className="w-full border border-gray-200 bg-white rounded-xl p-3 text-xs font-mono h-28 focus:border-black focus:outline-none text-gray-800 custom-scrollbar"
+                    placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
+                  />
+                </div>
+                <button
+                  onClick={handleExternalContinue}
+                  className="w-full bg-black hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition cursor-pointer"
+                >
+                  Continue
+                </button>
+              </div>
+            )}
 
             <button
               onClick={() => {
-                setRole({ type: "internal" });
-                showToast("Logged in as Internal Analyst", "success");
+                setSelectedAuditor(null);
+                setPrivateKeyInput("");
+                authLogout().then(() => updateRoleState(null));
               }}
-              className="w-full bg-black hover:bg-gray-900 text-white font-medium py-2.5 rounded-xl transition cursor-pointer"
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition cursor-pointer font-medium"
             >
-              Continue as Internal
+              ← Logout
             </button>
           </div>
-
-          {/* EXTERNAL */}
-          <div className="bg-white border rounded-2xl p-8 shadow-sm flex flex-col justify-between group hover:border-emerald-500/50 transition">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                External Auditor
-              </h2>
-              <p className="text-gray-500 text-sm mb-5">
-                Limited access with search-only capabilities
-              </p>
-
-              <ul className="text-sm space-y-3 mb-6 text-gray-600">
-                <li className="flex items-center gap-2 text-gray-400 line-through">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                  Upload encrypted documents
-                </li>
-                <li className="flex items-center gap-2 text-gray-400 line-through">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                  View encrypted storage
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                  Search without decryption (PEKS)
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                  Access limited metrics
-                </li>
-              </ul>
-            </div>
-
-            <button
-              onClick={async () => {
-                await fetchAuditors();
-                setRole({ type: "external_select" });
-              }}
-              disabled={loadingAuditors}
-              className="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {loadingAuditors ? "Loading Directory..." : "Continue as External"}
-            </button>
-          </div>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         </div>
+      );
+    }
 
-        <p className="text-xs text-gray-400 mt-10 text-center max-w-xl font-mono">
-          Role-Based Access Control • SSE • PEKS
-        </p>
+    return null;
+  };
 
-        {toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            onClose={() => setToast(null)}
-          />
-        )}
-      </div>
-    );
+  const isDashboardRole = role && (role.type === "internal" || role.type === "external" || role.type === "admin");
+  const isAdminRoute = currentPath.startsWith("/admin");
+
+  let adminPageContent = null;
+  if (currentPath === "/admin") {
+    adminPageContent = <AdminDashboard navigate={navigate} />;
+  } else if (currentPath === "/admin/iam") {
+    adminPageContent = <AdminIAM showToast={showToast} />;
+  } else if (currentPath === "/admin/auditors") {
+    adminPageContent = <AdminAuditors />;
+  } else if (currentPath === "/admin/documents") {
+    adminPageContent = <AdminDocuments />;
+  } else if (currentPath === "/admin/search") {
+    adminPageContent = <AdminSearch />;
+  } else if (currentPath === "/admin/metrics") {
+    adminPageContent = <AdminMetrics />;
+  } else if (currentPath === "/admin/settings") {
+    adminPageContent = <AdminSettings />;
+  } else if (currentPath === "/admin/profile") {
+    adminPageContent = <AdminProfile />;
+  } else {
+    adminPageContent = <AdminDashboard navigate={navigate} />;
   }
 
-  // ===============================
-  // EXTERNAL AUDITOR SELECTION
-  // ===============================
-  if (role.type === "external_select") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md shadow-sm">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Select Auditor Identity
-          </h2>
-          <p className="text-xs text-gray-500 mb-6">
-            Choose your registered identity and provide the matching private key credentials.
-          </p>
-
-          {loadingAuditors ? (
-            <div className="py-8">
-              <Spinner text="Loading auditor registry..." />
-            </div>
-          ) : externalAuditors.length === 0 ? (
-            <p className="text-gray-500 text-sm text-center py-6 border border-dashed rounded-xl">
-              No auditors available.
-            </p>
-          ) : (
-            <div className="space-y-2 mb-6">
-              {externalAuditors.map((auditor) => (
-                <button
-                  key={auditor.auditor_id}
-                  onClick={() => setSelectedAuditor(auditor)}
-                  className={`w-full border text-left px-4 py-3 rounded-xl transition text-sm flex justify-between items-center cursor-pointer ${
-                    selectedAuditor?.auditor_id === auditor.auditor_id
-                      ? "bg-gray-100 border-black text-black font-semibold"
-                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  <span>{auditor.name}</span>
-                  <span className="text-[10px] bg-gray-150 border px-2 py-0.5 rounded text-gray-500 uppercase font-mono">
-                    Ver {auditor.active_key_version}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {selectedAuditor && (
-            <div className="space-y-4 animate-[fadeIn_0.2s_ease-out]">
-              <div className="space-y-1.5">
-                <p className="text-xs text-gray-600 font-semibold font-mono tracking-wider">
-                  Auditor Private Key
-                </p>
-                <textarea
-                  value={privateKeyInput}
-                  onChange={(e) => setPrivateKeyInput(e.target.value)}
-                  className="w-full border border-gray-200 bg-white rounded-xl p-3 text-xs font-mono h-28 focus:border-black focus:outline-none text-gray-800 custom-scrollbar"
-                  placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
-                />
-              </div>
-
-              <button
-                onClick={handleExternalContinue}
-                className="w-full bg-black hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition cursor-pointer"
-              >
-                Continue
-              </button>
-            </div>
-          )}
-
-          <button
-            onClick={() => {
-              setSelectedAuditor(null);
-              setPrivateKeyInput("");
-              setRole(null);
-            }}
-            className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition cursor-pointer"
-          >
-            ← Back
-          </button>
-        </div>
-
-        {toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            onClose={() => setToast(null)}
-          />
-        )}
-      </div>
-    );
-  }
-
-  // ===============================
-  // DASHBOARD
-  // ===============================
   return (
-    <>
-      <Dashboard
-        role={role.type}
-        auditor={role.auditor}
-        privateKey={role.privateKey}
-        logout={logout}
-        showToast={showToast}
-      />
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
+    <ProtectedRoute fallback={renderAuthScreens()}>
+      {isAdminRoute ? (
+        <RoleRoute allowedRoles={[Roles.ADMINISTRATOR]} fallback={renderAuthScreens()}>
+          <AdminLayout
+            currentPath={currentPath}
+            navigate={navigate}
+            user={authUser}
+            logout={logout}
+          >
+            {adminPageContent}
+          </AdminLayout>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </RoleRoute>
+      ) : isDashboardRole ? (
+        <>
+          <Dashboard
+            role={role.type}
+            auditor={role.auditor}
+            privateKey={role.privateKey}
+            logout={logout}
+            showToast={showToast}
+          />
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </>
+      ) : (
+        renderAuthScreens()
       )}
-    </>
+    </ProtectedRoute>
   );
 }
