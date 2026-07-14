@@ -187,3 +187,154 @@ class RBACTests(TestCase):
         self.assertEqual(response.data["data"]["status"], "healthy")
         self.assertEqual(response.data["data"]["database"], "up")
 
+
+from documents.models import ExternalSearchAudit
+from crypto_engine.peks import generate_rsa_keypair, generate_trapdoor_private
+
+class AuditorActivityTimelineTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_group, _ = Group.objects.get_or_create(name=Roles.ADMINISTRATOR)
+        self.compliance_group, _ = Group.objects.get_or_create(name=Roles.COMPLIANCE_OFFICER)
+        self.analyst_group, _ = Group.objects.get_or_create(name=Roles.INTERNAL_ANALYST)
+        self.external_auditor_group, _ = Group.objects.get_or_create(name=Roles.EXTERNAL_AUDITOR)
+
+        self.super_admin = User.objects.create_user(username="super_admin_timeline", password="password123")
+        self.super_admin.groups.add(self.admin_group)
+
+        self.compliance = User.objects.create_user(username="compliance_timeline", password="password123")
+        self.compliance.groups.add(self.compliance_group)
+
+        self.analyst = User.objects.create_user(username="analyst_timeline", password="password123")
+        self.analyst.groups.add(self.analyst_group)
+
+    def test_auditor_creation_key_generation_and_download_logs(self):
+        self.client.force_authenticate(user=self.super_admin)
+        
+        # 1. Auditor Creation
+        url = "/api/auditor/create/"
+        response = self.client.post(url, {"name": "Axis Bank"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        auditor_id = response.data["data"]["auditor_id"]
+        
+        # Verify database logs
+        logs = ExternalSearchAudit.objects.filter(auditor_id=auditor_id).order_by("created_at")
+        
+        # We expect AUDITOR_CREATED, KEY_GENERATED, and CREDENTIAL_DOWNLOADED events
+        event_types = [log.event_type for log in logs]
+        self.assertIn("AUDITOR_CREATED", event_types)
+        self.assertIn("KEY_GENERATED", event_types)
+        self.assertIn("CREDENTIAL_DOWNLOADED", event_types)
+        
+        # Verify they are associated with the admin user who created it
+        for log in logs:
+            self.assertEqual(log.performed_by, self.super_admin)
+
+    def test_key_rotation_and_download_logs(self):
+        # Create an auditor first
+        auditor = Auditor.objects.create(name="SBI", public_key="initial-key", key_version=1)
+        
+        self.client.force_authenticate(user=self.super_admin)
+        url = "/api/auditor/rotate-key/"
+        response = self.client.post(url, {"auditor_id": auditor.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify rotation, generation, and download logs
+        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type__in=["KEY_ROTATED", "KEY_GENERATED", "CREDENTIAL_DOWNLOADED"])
+        self.assertEqual(logs.count(), 3)
+        
+        event_types = [log.event_type for log in logs]
+        self.assertIn("KEY_ROTATED", event_types)
+        self.assertIn("KEY_GENERATED", event_types)
+        self.assertIn("CREDENTIAL_DOWNLOADED", event_types)
+
+    def test_account_update_logs(self):
+        auditor = Auditor.objects.create(name="SBI", public_key="initial-key", key_version=1)
+        
+        self.client.force_authenticate(user=self.super_admin)
+        url = f"/api/auditor/{auditor.id}/update/"
+        response = self.client.patch(url, {"name": "SBI Updated"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify database log
+        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type="ACCOUNT_UPDATED")
+        self.assertEqual(logs.count(), 1)
+        self.assertEqual(logs.first().metadata["new_name"], "SBI Updated")
+
+    def test_account_deletion_logs(self):
+        auditor = Auditor.objects.create(name="SBI", public_key="initial-key", key_version=1)
+        
+        self.client.force_authenticate(user=self.super_admin)
+        url = f"/api/auditor/{auditor.id}/delete/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify database log (since the auditor is deleted, the ForeignKey is SET_NULL)
+        logs = ExternalSearchAudit.objects.filter(event_type="ACCOUNT_DELETED")
+        self.assertEqual(logs.count(), 1)
+        self.assertEqual(logs.first().metadata["name"], "SBI")
+
+    def test_external_search_logs(self):
+        private_key, public_key = generate_rsa_keypair()
+        auditor = Auditor.objects.create(name="ICICI", public_key=public_key, key_version=1)
+        
+        keyword_hash, signature = generate_trapdoor_private("test-keyword", private_key)
+        
+        self.client.force_authenticate(user=self.super_admin)
+        url = "/api/search/external/"
+        response = self.client.post(url, {
+            "auditor_id": auditor.id,
+            "key_version": 1,
+            "keyword_hash": keyword_hash,
+            "signature": signature
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify log exists
+        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type="EXTERNAL_SEARCH")
+        self.assertEqual(logs.count(), 1)
+        self.assertTrue(logs.first().success)
+
+    def test_timeline_api_ordering_and_permissions(self):
+        # Create some events
+        auditor = Auditor.objects.create(name="SBI", public_key="key", key_version=1)
+        
+        # Create logs manually with differing timestamps
+        from django.utils import timezone
+        
+        log1 = ExternalSearchAudit.objects.create(
+            auditor=auditor,
+            event_type="AUDITOR_CREATED",
+            success=True,
+            created_at=timezone.now() - timezone.timedelta(seconds=10)
+        )
+        log2 = ExternalSearchAudit.objects.create(
+            auditor=auditor,
+            event_type="KEY_ROTATED",
+            success=True,
+            created_at=timezone.now()
+        )
+        
+        url = "/api/auditor/timeline/"
+        
+        # 1. Super Admin (Allowed)
+        self.client.force_authenticate(user=self.super_admin)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Check ordering: log2 (newest) should be first, log1 should be second
+        results = response.data["data"]["results"]
+        self.assertEqual(results[0]["id"], log2.id)
+        self.assertEqual(results[1]["id"], log1.id)
+        
+        # 2. Compliance Officer (Allowed)
+        self.client.force_authenticate(user=self.compliance)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # 3. Internal Analyst (Forbidden)
+        self.client.force_authenticate(user=self.analyst)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+

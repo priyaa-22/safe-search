@@ -11,6 +11,8 @@ from .views import (
     CreateAuditorView,
     DeleteAuditorView,
     HealthCheckView,
+    UpdateAuditorView,
+    AuditorTimelineView,
 )
 
 urlpatterns = [
@@ -26,5 +28,7 @@ urlpatterns = [
     path("auditor/rotate-key/", RotateAuditorKeyView.as_view()),
     path("auditor/create/", CreateAuditorView.as_view()),
     path("auditor/<int:auditor_id>/delete/", DeleteAuditorView.as_view()),
+    path("auditor/<int:auditor_id>/update/", UpdateAuditorView.as_view()),
+    path("auditor/timeline/", AuditorTimelineView.as_view()),
 ]
 

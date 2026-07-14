@@ -36,7 +36,7 @@ from documents.models import (
 )
 
 from .constants import SEARCHABLE_FIELDS
-from .utils import success_response, error_response
+from .utils import success_response, error_response, log_auditor_event, get_client_ip
 
 
 MAX_EXTERNAL_RESULTS = 50
@@ -217,18 +217,18 @@ class ExternalSearchView(APIView):
 
         current_key_version = getattr(auditor, "key_version", 1)
         if request_key_version is not None and str(request_key_version) != str(current_key_version):
-            ExternalSearchAudit.objects.create(
+            log_auditor_event(
                 auditor=auditor,
-                keyword_hash=keyword_hash,
-                total_matches=0,
-                returned_count=0,
-                truncated=False,
-                execution_time_ms=round(
-                    (time.perf_counter() - total_start) * 1000, 2
-                ),
+                event_type="EXTERNAL_SEARCH",
+                performed_by=request.user,
+                ip_address=get_client_ip(request),
                 success=False,
                 failure_reason="KEY_VERSION_MISMATCH",
-                key_version=current_key_version
+                keyword_hash=keyword_hash,
+                key_version=current_key_version,
+                execution_time_ms=round(
+                    (time.perf_counter() - total_start) * 1000, 2
+                )
             )
 
             return Response(
@@ -246,18 +246,18 @@ class ExternalSearchView(APIView):
         verify_time = (time.perf_counter() - verify_start) * 1000
 
         if not is_valid:
-            ExternalSearchAudit.objects.create(
+            log_auditor_event(
                 auditor=auditor,
-                keyword_hash=keyword_hash,
-                total_matches=0,
-                returned_count=0,
-                truncated=False,
-                execution_time_ms=round(
-                    (time.perf_counter() - total_start) * 1000, 2
-                ),
+                event_type="EXTERNAL_SEARCH",
+                performed_by=request.user,
+                ip_address=get_client_ip(request),
                 success=False,
                 failure_reason="INVALID_SIGNATURE",
-                key_version=getattr(auditor, "key_version", 1)
+                keyword_hash=keyword_hash,
+                key_version=getattr(auditor, "key_version", 1),
+                execution_time_ms=round(
+                    (time.perf_counter() - total_start) * 1000, 2
+                )
             )
 
             return Response(
@@ -303,14 +303,17 @@ class ExternalSearchView(APIView):
         ).count()
 
         # Audit Log
-        audit_entry = ExternalSearchAudit.objects.create(
+        audit_entry = log_auditor_event(
             auditor=auditor,
+            event_type="EXTERNAL_SEARCH",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
             keyword_hash=keyword_hash,
             total_matches=total_matches,
             returned_count=min(total_matches, MAX_EXTERNAL_RESULTS),
             truncated=total_matches > MAX_EXTERNAL_RESULTS,
             execution_time_ms=round(total_time, 2),
-            success=True,
             key_version=getattr(auditor, "key_version", 1)
         )
 
@@ -398,10 +401,28 @@ class VerifyAuditorCredentialsView(APIView):
         is_valid = verify_signature(probe_hash, signature, auditor.public_key)
 
         if not is_valid:
+            log_auditor_event(
+                auditor=auditor,
+                event_type="CREDENTIAL_DOWNLOADED",
+                performed_by=request.user,
+                ip_address=get_client_ip(request),
+                success=False,
+                failure_reason="INVALID_SIGNATURE",
+                metadata={"action": "verify"}
+            )
             return Response(
                 error_response("INVALID_SIGNATURE", "Private key does not match selected auditor"),
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        log_auditor_event(
+            auditor=auditor,
+            event_type="CREDENTIAL_DOWNLOADED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"action": "verify"}
+        )
 
         return Response(
             success_response(
@@ -571,10 +592,36 @@ class RotateAuditorKeyView(APIView):
         # Generate new keypair
         private_key, public_key = generate_rsa_keypair()
 
+        old_key_version = auditor.key_version
         # Rotate
         auditor.public_key = public_key
         auditor.key_version += 1
         auditor.save()
+
+        log_auditor_event(
+            auditor=auditor,
+            event_type="KEY_ROTATED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"old_key_version": old_key_version, "new_key_version": auditor.key_version}
+        )
+        log_auditor_event(
+            auditor=auditor,
+            event_type="KEY_GENERATED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"key_version": auditor.key_version}
+        )
+        log_auditor_event(
+            auditor=auditor,
+            event_type="CREDENTIAL_DOWNLOADED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"key_version": auditor.key_version, "action": "rotate_download"}
+        )
 
         return Response(
             success_response(
@@ -608,6 +655,31 @@ class CreateAuditorView(APIView):
             key_version=1
         )
 
+        log_auditor_event(
+            auditor=auditor,
+            event_type="AUDITOR_CREATED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"name": auditor.name}
+        )
+        log_auditor_event(
+            auditor=auditor,
+            event_type="KEY_GENERATED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"key_version": auditor.key_version}
+        )
+        log_auditor_event(
+            auditor=auditor,
+            event_type="CREDENTIAL_DOWNLOADED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"key_version": auditor.key_version, "action": "create_download"}
+        )
+
         return Response(
             success_response(
                 data={
@@ -633,11 +705,128 @@ class DeleteAuditorView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        log_auditor_event(
+            auditor=auditor,
+            event_type="ACCOUNT_DELETED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"auditor_id": auditor.id, "name": auditor.name}
+        )
+
         auditor.delete()
 
         return Response(
             success_response(
                 data={"message": "Auditor deleted successfully"}
+            ),
+            status=status.HTTP_200_OK
+        )
+
+
+class UpdateAuditorView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
+
+    def patch(self, request, auditor_id):
+        try:
+            auditor = Auditor.objects.get(id=auditor_id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        name = request.data.get("name")
+        if not name:
+            return Response(
+                error_response("MISSING_NAME", "Auditor name required"),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        old_name = auditor.name
+        auditor.name = name
+        auditor.save()
+
+        log_auditor_event(
+            auditor=auditor,
+            event_type="ACCOUNT_UPDATED",
+            performed_by=request.user,
+            ip_address=get_client_ip(request),
+            success=True,
+            metadata={"old_name": old_name, "new_name": name}
+        )
+
+        return Response(
+            success_response(
+                data={
+                    "auditor_id": auditor.id,
+                    "name": auditor.name,
+                    "key_version": auditor.key_version
+                }
+            ),
+            status=status.HTTP_200_OK
+        )
+
+
+from rest_framework.pagination import PageNumberPagination
+
+class AuditorTimelinePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+class AuditorTimelineView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
+
+    def get(self, request):
+        logs = ExternalSearchAudit.objects.all().order_by("-created_at")
+
+        paginator = AuditorTimelinePagination()
+        paginated_logs = paginator.paginate_queryset(logs, request, view=self)
+
+        data = []
+        for log in paginated_logs:
+            performed_by_data = None
+            if log.performed_by:
+                performed_by_data = {
+                    "id": log.performed_by.id,
+                    "username": log.performed_by.username,
+                    "full_name": f"{log.performed_by.first_name} {log.performed_by.last_name}".strip() or log.performed_by.username,
+                }
+
+            auditor_data = None
+            if log.auditor:
+                auditor_data = {
+                    "id": log.auditor.id,
+                    "name": log.auditor.name,
+                }
+
+            data.append({
+                "id": log.id,
+                "event_type": log.event_type,
+                "auditor": auditor_data,
+                "performed_by": performed_by_data,
+                "timestamp": log.created_at.isoformat(),
+                "success": log.success,
+                "failure_reason": log.failure_reason,
+                "metadata": log.metadata,
+                "keyword_hash": log.keyword_hash,
+                "total_matches": log.total_matches,
+                "returned_count": log.returned_count,
+                "truncated": log.truncated,
+                "execution_time_ms": log.execution_time_ms,
+                "key_version": log.key_version,
+                "ip_address": log.ip_address,
+            })
+
+        return Response(
+            success_response(
+                data={
+                    "results": data,
+                    "count": paginator.page.paginator.count,
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                }
             ),
             status=status.HTTP_200_OK
         )

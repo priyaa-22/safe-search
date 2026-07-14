@@ -75,17 +75,19 @@ class Auditor(models.Model):
 class ExternalSearchAudit(models.Model):
     auditor = models.ForeignKey(
         Auditor,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="external_search_logs"
     )
 
-    keyword_hash = models.CharField(max_length=64, db_index=True)
+    keyword_hash = models.CharField(max_length=64, db_index=True, null=True, blank=True)
 
     total_matches = models.IntegerField(default=0)
     returned_count = models.IntegerField(default=0)
     truncated = models.BooleanField(default=False)
 
-    execution_time_ms = models.FloatField()
+    execution_time_ms = models.FloatField(null=True, blank=True)
 
     # 🔐 Security Tracking
     success = models.BooleanField(default=True)
@@ -104,6 +106,30 @@ class ExternalSearchAudit(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # 🛡️ Auditor Activity Logging Extensions
+    event_type = models.CharField(
+        max_length=50,
+        default="EXTERNAL_SEARCH",
+        choices=[
+            ("AUDITOR_CREATED", "Auditor Created"),
+            ("KEY_GENERATED", "Key Generated"),
+            ("KEY_ROTATED", "Key Rotated"),
+            ("ACCOUNT_UPDATED", "Account Updated"),
+            ("ACCOUNT_DELETED", "Account Deleted"),
+            ("CREDENTIAL_DOWNLOADED", "Credential Downloaded"),
+            ("EXTERNAL_SEARCH", "External Search"),
+        ],
+        db_index=True
+    )
+    performed_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="performed_audit_logs"
+    )
+    metadata = models.JSONField(null=True, blank=True)
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [
@@ -111,11 +137,13 @@ class ExternalSearchAudit(models.Model):
             models.Index(fields=["created_at"]),
             models.Index(fields=["success"]),
             models.Index(fields=["keyword_hash"]),
+            models.Index(fields=["event_type"]),
         ]
 
     def __str__(self):
         status = "SUCCESS" if self.success else "FAILED"
+        auditor_id = self.auditor.id if self.auditor else "DELETED"
         return (
-            f"[{status}] Auditor {self.auditor.id} "
+            f"[{status}] {self.event_type} - Auditor {auditor_id} "
             f"(v{self.key_version}) - {self.created_at}"
         )
