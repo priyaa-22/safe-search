@@ -373,6 +373,24 @@ class UserDetailView(APIView):
 
         user.save()
 
+        # Log event if the updated user is an external auditor
+        if get_primary_role(user) == Roles.EXTERNAL_AUDITOR:
+            try:
+                from documents.utils import log_auditor_event, get_client_ip
+                from documents.models import Auditor
+                fullName = f"{user.first_name} {user.last_name}".strip()
+                auditor = Auditor.objects.filter(name__icontains=fullName or user.username).first()
+                log_auditor_event(
+                    auditor=auditor,
+                    event_type="ACCOUNT_UPDATED",
+                    performed_by=request.user,
+                    ip_address=get_client_ip(request),
+                    success=True,
+                    metadata={"username": user.username, "updated_fields": {k: v for k, v in request.data.items() if k != "password"}}
+                )
+            except Exception:
+                pass
+
         # Invalidate cache
         if hasattr(user, "_cached_primary_role"):
             delattr(user, "_cached_primary_role")
@@ -419,6 +437,24 @@ class UserDetailView(APIView):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Log event if the deleted user is an external auditor
+        if current_role == Roles.EXTERNAL_AUDITOR:
+            try:
+                from documents.utils import log_auditor_event, get_client_ip
+                from documents.models import Auditor
+                fullName = f"{user.first_name} {user.last_name}".strip()
+                auditor = Auditor.objects.filter(name__icontains=fullName or user.username).first()
+                log_auditor_event(
+                    auditor=auditor,
+                    event_type="ACCOUNT_DELETED",
+                    performed_by=request.user,
+                    ip_address=get_client_ip(request),
+                    success=True,
+                    metadata={"username": user.username}
+                )
+            except Exception:
+                pass
 
         user.delete()
         return Response(
