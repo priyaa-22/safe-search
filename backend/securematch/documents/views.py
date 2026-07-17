@@ -36,8 +36,25 @@ from documents.models import (
 )
 
 from .constants import SEARCHABLE_FIELDS
-from .utils import success_response, error_response, log_auditor_event, get_client_ip
-
+from .utils import success_response, error_response
+from .serializers import (
+    AuditorRetrieveSerializer,
+    AuditorUpdateSerializer,
+    AuditorStatusSerializer
+)
+from documents.services.auditor_service import (
+    create_auditor_with_identity,
+    update_auditor_status,
+)
+from documents.services.key_service import (
+    rotate_auditor_keys,
+)
+from documents.services.credential_service import (
+    generate_credential_pdf,
+)
+from documents.services.log_export_service import (
+    generate_auditor_logs_pdf,
+)
 
 MAX_EXTERNAL_RESULTS = 50
 MAX_INTERNAL_RESULTS = 50
@@ -217,18 +234,18 @@ class ExternalSearchView(APIView):
 
         current_key_version = getattr(auditor, "key_version", 1)
         if request_key_version is not None and str(request_key_version) != str(current_key_version):
-            log_auditor_event(
+            ExternalSearchAudit.objects.create(
                 auditor=auditor,
-                event_type="EXTERNAL_SEARCH",
-                performed_by=request.user,
-                ip_address=get_client_ip(request),
-                success=False,
-                failure_reason="KEY_VERSION_MISMATCH",
                 keyword_hash=keyword_hash,
-                key_version=current_key_version,
+                total_matches=0,
+                returned_count=0,
+                truncated=False,
                 execution_time_ms=round(
                     (time.perf_counter() - total_start) * 1000, 2
-                )
+                ),
+                success=False,
+                failure_reason="KEY_VERSION_MISMATCH",
+                key_version=current_key_version
             )
 
             return Response(
@@ -246,18 +263,18 @@ class ExternalSearchView(APIView):
         verify_time = (time.perf_counter() - verify_start) * 1000
 
         if not is_valid:
-            log_auditor_event(
+            ExternalSearchAudit.objects.create(
                 auditor=auditor,
-                event_type="EXTERNAL_SEARCH",
-                performed_by=request.user,
-                ip_address=get_client_ip(request),
-                success=False,
-                failure_reason="INVALID_SIGNATURE",
                 keyword_hash=keyword_hash,
-                key_version=getattr(auditor, "key_version", 1),
+                total_matches=0,
+                returned_count=0,
+                truncated=False,
                 execution_time_ms=round(
                     (time.perf_counter() - total_start) * 1000, 2
-                )
+                ),
+                success=False,
+                failure_reason="INVALID_SIGNATURE",
+                key_version=getattr(auditor, "key_version", 1)
             )
 
             return Response(
@@ -303,17 +320,14 @@ class ExternalSearchView(APIView):
         ).count()
 
         # Audit Log
-        audit_entry = log_auditor_event(
+        audit_entry = ExternalSearchAudit.objects.create(
             auditor=auditor,
-            event_type="EXTERNAL_SEARCH",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
             keyword_hash=keyword_hash,
             total_matches=total_matches,
             returned_count=min(total_matches, MAX_EXTERNAL_RESULTS),
             truncated=total_matches > MAX_EXTERNAL_RESULTS,
             execution_time_ms=round(total_time, 2),
+            success=True,
             key_version=getattr(auditor, "key_version", 1)
         )
 
@@ -401,28 +415,10 @@ class VerifyAuditorCredentialsView(APIView):
         is_valid = verify_signature(probe_hash, signature, auditor.public_key)
 
         if not is_valid:
-            log_auditor_event(
-                auditor=auditor,
-                event_type="CREDENTIAL_DOWNLOADED",
-                performed_by=request.user,
-                ip_address=get_client_ip(request),
-                success=False,
-                failure_reason="INVALID_SIGNATURE",
-                metadata={"action": "verify"}
-            )
             return Response(
                 error_response("INVALID_SIGNATURE", "Private key does not match selected auditor"),
                 status=status.HTTP_403_FORBIDDEN
             )
-
-        log_auditor_event(
-            auditor=auditor,
-            event_type="CREDENTIAL_DOWNLOADED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"action": "verify"}
-        )
 
         return Response(
             success_response(
@@ -473,6 +469,30 @@ class AuditorLogsView(APIView):
             ),
             status=status.HTTP_200_OK
         )
+
+
+class DownloadAuditorLogsPdfView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
+
+    def get(self, request, auditor_id):
+        from django.http import HttpResponse
+
+        try:
+            auditor = Auditor.objects.get(id=auditor_id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        logs = ExternalSearchAudit.objects.filter(auditor=auditor)[:100]
+        pdf_bytes = generate_auditor_logs_pdf(auditor, logs)
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="auditor_{auditor.id}_logs.pdf"'
+        )
+        return response
     
 class InternalMetricsView(APIView):
     permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
@@ -589,50 +609,23 @@ class RotateAuditorKeyView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Generate new keypair
-        private_key, public_key = generate_rsa_keypair()
-
-        old_key_version = auditor.key_version
-        # Rotate
-        auditor.public_key = public_key
-        auditor.key_version += 1
-        auditor.save()
-
-        log_auditor_event(
-            auditor=auditor,
-            event_type="KEY_ROTATED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"old_key_version": old_key_version, "new_key_version": auditor.key_version}
-        )
-        log_auditor_event(
-            auditor=auditor,
-            event_type="KEY_GENERATED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"key_version": auditor.key_version}
-        )
-        log_auditor_event(
-            auditor=auditor,
-            event_type="CREDENTIAL_DOWNLOADED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"key_version": auditor.key_version, "action": "rotate_download"}
-        )
-
-        return Response(
-            success_response(
-                data={
-                    "new_private_key": private_key,
-                    "new_public_key": public_key,
-                    "new_key_version": auditor.key_version
-                }
-            ),
-            status=status.HTTP_200_OK
-        )
+        try:
+            private_key, public_key, version = rotate_auditor_keys(auditor)
+            return Response(
+                success_response(
+                    data={
+                        "new_private_key": private_key,
+                        "new_public_key": public_key,
+                        "new_key_version": version
+                    }
+                ),
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                error_response("KEY_ROTATION_FAILED", str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
 class CreateAuditorView(APIView):
     permission_classes = [IsAuthenticated, IsSuperAdministrator]
@@ -646,52 +639,25 @@ class CreateAuditorView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Generate keypair
-        private_key, public_key = generate_rsa_keypair()
-
-        auditor = Auditor.objects.create(
-            name=name,
-            public_key=public_key,
-            key_version=1
-        )
-
-        log_auditor_event(
-            auditor=auditor,
-            event_type="AUDITOR_CREATED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"name": auditor.name}
-        )
-        log_auditor_event(
-            auditor=auditor,
-            event_type="KEY_GENERATED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"key_version": auditor.key_version}
-        )
-        log_auditor_event(
-            auditor=auditor,
-            event_type="CREDENTIAL_DOWNLOADED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"key_version": auditor.key_version, "action": "create_download"}
-        )
-
-        return Response(
-            success_response(
-                data={
-                    "auditor_id": auditor.id,
-                    "name": auditor.name,
-                    "public_key": public_key,
-                    "private_key": private_key,  # Return only once
-                    "key_version": auditor.key_version
-                }
-            ),
-            status=status.HTTP_201_CREATED
-        )
+        try:
+            res = create_auditor_with_identity(name=name)
+            return Response(
+                success_response(
+                    data={
+                        "auditor_id": res["auditor"].id,
+                        "name": res["auditor"].name,
+                        "public_key": res["auditor"].public_key,
+                        "private_key": res["private_key"],
+                        "key_version": res["auditor"].key_version
+                    }
+                ),
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return Response(
+                error_response("AUDITOR_CREATION_FAILED", str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class DeleteAuditorView(APIView):
     permission_classes = [IsAuthenticated, IsSuperAdministrator]
@@ -705,131 +671,265 @@ class DeleteAuditorView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        log_auditor_event(
-            auditor=auditor,
-            event_type="ACCOUNT_DELETED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"auditor_id": auditor.id, "name": auditor.name}
-        )
-
-        auditor.delete()
-
-        return Response(
-            success_response(
-                data={"message": "Auditor deleted successfully"}
-            ),
-            status=status.HTTP_200_OK
-        )
-
-
-class UpdateAuditorView(APIView):
-    permission_classes = [IsAuthenticated, IsSuperAdministrator]
-
-    def patch(self, request, auditor_id):
         try:
-            auditor = Auditor.objects.get(id=auditor_id)
-        except Auditor.DoesNotExist:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            if auditor.email:
+                User.objects.filter(email=auditor.email).delete()
+            clean_name = "".join(c for c in auditor.name.lower() if c.isalnum() or c in "_-")
+            User.objects.filter(username__startswith=f"auditor_{clean_name}").delete()
+            
+            auditor.delete()
             return Response(
-                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
-                status=status.HTTP_404_NOT_FOUND
+                success_response(
+                    data={"message": "Auditor deleted successfully"}
+                ),
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                error_response("AUDITOR_DELETE_FAILED", str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+class AuditorListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated(), IsAdministrator()]
+        return [IsAuthenticated(), (IsAdministrator | IsComplianceOfficer)()]
+
+    def get(self, request):
+        try:
+            queryset = Auditor.objects.all()
+
+            search_query = request.query_params.get("search")
+            if search_query:
+                from django.db.models import Q
+                queryset = queryset.filter(
+                    Q(name__icontains=search_query) |
+                    Q(email__icontains=search_query) |
+                    Q(designation__icontains=search_query) |
+                    Q(phone__icontains=search_query)
+                )
+
+            status_filter = request.query_params.get("status")
+            if status_filter:
+                queryset = queryset.filter(status=status_filter)
+
+            serializer = AuditorRetrieveSerializer(queryset, many=True)
+            return Response(
+                success_response(data=serializer.data),
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                error_response("AUDITOR_LIST_FAILED", f"Failed to retrieve auditors: {str(e)}"),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def post(self, request):
         name = request.data.get("name")
+        email = request.data.get("email")
+        phone = request.data.get("phone")
+        designation = request.data.get("designation")
+        status_val = request.data.get("status", "ACTIVE")
+
         if not name:
             return Response(
                 error_response("MISSING_NAME", "Auditor name required"),
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        old_name = auditor.name
-        auditor.name = name
-        auditor.save()
+        try:
+            if email and Auditor.objects.filter(email__iexact=email).exists():
+                return Response(
+                    error_response("VALIDATION_ERROR", "An auditor with this email already exists.", {"email": ["An auditor with this email already exists."]}),
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if Auditor.objects.filter(name__iexact=name).exists():
+                return Response(
+                    error_response("VALIDATION_ERROR", "An auditor with this name already exists.", {"name": ["An auditor with this name already exists."]}),
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        log_auditor_event(
-            auditor=auditor,
-            event_type="ACCOUNT_UPDATED",
-            performed_by=request.user,
-            ip_address=get_client_ip(request),
-            success=True,
-            metadata={"old_name": old_name, "new_name": name}
-        )
+            res = create_auditor_with_identity(
+                name=name,
+                email=email,
+                phone=phone,
+                designation=designation,
+                status=status_val
+            )
+            return Response(
+                success_response(
+                    data={
+                        "auditor_id": res["auditor"].id,
+                        "name": res["auditor"].name,
+                        "email": res["auditor"].email,
+                        "phone": res["auditor"].phone,
+                        "designation": res["auditor"].designation,
+                        "public_key": res["auditor"].public_key,
+                        "private_key": res["private_key"],
+                        "key_version": res["auditor"].key_version,
+                        "temporary_password": res["temporary_password"],
+                        "username": res["username"],
+                        "status": res["auditor"].status
+                    }
+                ),
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return Response(
+                error_response("AUDITOR_CREATION_FAILED", f"Failed to create auditor: {str(e)}"),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
+class AuditorDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ["PATCH", "PUT", "DELETE"]:
+            return [IsAuthenticated(), IsAdministrator()]
+        return [IsAuthenticated(), (IsAdministrator | IsComplianceOfficer)()]
+
+    def get(self, request, id):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = AuditorRetrieveSerializer(auditor)
         return Response(
-            success_response(
-                data={
-                    "auditor_id": auditor.id,
-                    "name": auditor.name,
-                    "key_version": auditor.key_version
-                }
-            ),
+            success_response(data=serializer.data),
             status=status.HTTP_200_OK
         )
 
+    def patch(self, request, id):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-from rest_framework.pagination import PageNumberPagination
+        if "status" in request.data:
+            status_val = request.data["status"]
+            try:
+                update_auditor_status(auditor, status_val)
+            except Exception as e:
+                return Response(
+                    error_response("AUDITOR_STATUS_UPDATE_FAILED", str(e)),
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-class AuditorTimelinePagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
+        serializer = AuditorUpdateSerializer(auditor, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Invalid request data.",
+                    details=serializer.errors
+                ),
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-class AuditorTimelineView(APIView):
-    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
-
-    def get(self, request):
-        logs = ExternalSearchAudit.objects.all().order_by("-created_at")
-
-        paginator = AuditorTimelinePagination()
-        paginated_logs = paginator.paginate_queryset(logs, request, view=self)
-
-        data = []
-        for log in paginated_logs:
-            performed_by_data = None
-            if log.performed_by:
-                performed_by_data = {
-                    "id": log.performed_by.id,
-                    "username": log.performed_by.username,
-                    "full_name": f"{log.performed_by.first_name} {log.performed_by.last_name}".strip() or log.performed_by.username,
-                }
-
-            auditor_data = None
-            if log.auditor:
-                auditor_data = {
-                    "id": log.auditor.id,
-                    "name": log.auditor.name,
-                }
-
-            data.append({
-                "id": log.id,
-                "event_type": log.event_type,
-                "auditor": auditor_data,
-                "performed_by": performed_by_data,
-                "timestamp": log.created_at.isoformat(),
-                "success": log.success,
-                "failure_reason": log.failure_reason,
-                "metadata": log.metadata,
-                "keyword_hash": log.keyword_hash,
-                "total_matches": log.total_matches,
-                "returned_count": log.returned_count,
-                "truncated": log.truncated,
-                "execution_time_ms": log.execution_time_ms,
-                "key_version": log.key_version,
-                "ip_address": log.ip_address,
-            })
-
+        serializer.save()
+        profile_serializer = AuditorRetrieveSerializer(auditor)
         return Response(
-            success_response(
-                data={
-                    "results": data,
-                    "count": paginator.page.paginator.count,
-                    "next": paginator.get_next_link(),
-                    "previous": paginator.get_previous_link(),
-                }
-            ),
+            success_response(data=profile_serializer.data),
             status=status.HTTP_200_OK
         )
+
+    def put(self, request, id):
+        return self.patch(request, id)
+
+    def delete(self, request, id):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            if auditor.email:
+                User.objects.filter(email=auditor.email).delete()
+            clean_name = "".join(c for c in auditor.name.lower() if c.isalnum() or c in "_-")
+            User.objects.filter(username__startswith=f"auditor_{clean_name}").delete()
+            
+            auditor.delete()
+            return Response(
+                success_response(data={"message": "Auditor deleted successfully"}),
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                error_response("AUDITOR_DELETE_FAILED", str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class AuditorRotateKeyPathView(APIView):
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def post(self, request, id):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            private_key, public_key, version = rotate_auditor_keys(auditor)
+            return Response(
+                success_response(
+                    data={
+                        "new_private_key": private_key,
+                        "new_public_key": public_key,
+                        "new_key_version": version
+                    }
+                ),
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                error_response("KEY_ROTATION_FAILED", str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class AuditorCredentialsPathView(APIView):
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request, id):
+        from django.http import HttpResponse
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            pdf_bytes = generate_credential_pdf(auditor)
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="SecureMatch_Auditor_Credentials.pdf"'
+            return response
+        except Exception as e:
+            return Response(
+                error_response("CREDENTIAL_GENERATION_FAILED", str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 
 class HealthCheckView(APIView):
@@ -867,3 +967,237 @@ class HealthCheckView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
+
+class DownloadAuditorCredentialsView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsExternalAuditor]
+
+    def get(self, request, auditor_id):
+        from django.http import HttpResponse
+        from .pdf_generator import generate_credential_pdf
+
+        try:
+            auditor = Auditor.objects.get(id=auditor_id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        pdf_bytes = generate_credential_pdf(auditor)
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="auditor_{auditor.id}_credentials.pdf"'
+        return response
+
+    def post(self, request, auditor_id):
+        from django.http import HttpResponse
+        from .pdf_generator import generate_credential_pdf
+
+        try:
+            auditor = Auditor.objects.get(id=auditor_id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response("AUDITOR_NOT_FOUND", "Auditor not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        private_key = None
+        if isinstance(request.data, dict):
+            private_key = request.data.get("private_key")
+
+        pdf_bytes = generate_credential_pdf(auditor, private_key=private_key)
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="auditor_{auditor.id}_credentials.pdf"'
+        return response
+class AuditorProfileRetrieveView(APIView):
+    """
+    GET /api/auditor/<id>/
+
+    Success: 200
+    {
+        "status": "success",
+        "data": {
+            "id": 1,
+            "name": "SBI Auditor",
+            "email": "sbi@auditor.com",
+            "phone": "+919876543210",
+            "designation": "Senior Auditor",
+            "public_key": "...",
+            "key_version": 1,
+            "status": "ACTIVE",
+            "created_at": "2026-07-14T08:00:00Z",
+            "updated_at": "2026-07-14T08:00:00Z"
+        },
+        "meta": {}
+    }
+
+    Errors: 404 AUDITOR_NOT_FOUND, 500 AUDITOR_PROFILE_RETRIEVE_FAILED
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsComplianceOfficer]
+
+    def get(self, request, id):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response(
+                    code="AUDITOR_NOT_FOUND",
+                    message="Auditor not found"
+                ),
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception:
+            return Response(
+                error_response(
+                    code="AUDITOR_PROFILE_RETRIEVE_FAILED",
+                    message="Failed to retrieve auditor profile"
+                ),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        serializer = AuditorRetrieveSerializer(auditor)
+        return Response(
+            success_response(data=serializer.data),
+            status=status.HTTP_200_OK
+        )
+
+
+class AuditorProfileUpdateView(APIView):
+    """
+    PUT/PATCH /api/auditor/<id>/update/
+
+    Request body:
+    {
+        "name": "SBI Auditor",
+        "email": "sbi@auditor.com",
+        "phone": "+919876543210",
+        "designation": "Senior Auditor"
+    }
+
+    Editable fields: name, email, phone, designation.
+    Ignored read-only fields: id, public_key, key_version, created_at, updated_at, status.
+
+    Success: 200 with AuditorRetrieveSerializer response.
+    Errors: 400 VALIDATION_ERROR, 404 AUDITOR_NOT_FOUND, 500 AUDITOR_PROFILE_UPDATE_FAILED
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
+
+    def patch(self, request, id):
+        return self._update(request, id, partial=True)
+
+    def put(self, request, id):
+        return self._update(request, id, partial=False)
+
+    def _update(self, request, id, partial):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response(
+                    code="AUDITOR_NOT_FOUND",
+                    message="Auditor not found"
+                ),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = AuditorUpdateSerializer(
+            auditor,
+            data=request.data,
+            partial=partial
+        )
+        if not serializer.is_valid():
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Invalid request data.",
+                    details=serializer.errors
+                ),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            auditor = serializer.save()
+        except Exception:
+            return Response(
+                error_response(
+                    code="AUDITOR_PROFILE_UPDATE_FAILED",
+                    message="Failed to update auditor profile"
+                ),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        profile_serializer = AuditorRetrieveSerializer(auditor)
+        return Response(
+            success_response(data=profile_serializer.data),
+            status=status.HTTP_200_OK
+        )
+
+
+class AuditorStatusUpdateView(APIView):
+    """
+    PATCH /api/auditor/<id>/status/
+
+    Request body:
+    {
+        "status": "DISABLED"
+    }
+
+    Supported status values: ACTIVE, DISABLED.
+
+    Success: 200
+    {
+        "status": "success",
+        "data": {
+            "auditor_id": 1,
+            "status": "DISABLED"
+        },
+        "meta": {}
+    }
+
+    Errors: 400 VALIDATION_ERROR, 404 AUDITOR_NOT_FOUND, 500 AUDITOR_STATUS_UPDATE_FAILED
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdministrator]
+
+    def patch(self, request, id):
+        try:
+            auditor = Auditor.objects.get(id=id)
+        except Auditor.DoesNotExist:
+            return Response(
+                error_response(
+                    code="AUDITOR_NOT_FOUND",
+                    message="Auditor not found"
+                ),
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = AuditorStatusSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Invalid request data.",
+                    details=serializer.errors
+                ),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            auditor.status = serializer.validated_data["status"]
+            auditor.save(update_fields=["status", "updated_at"])
+        except Exception:
+            return Response(
+                error_response(
+                    code="AUDITOR_STATUS_UPDATE_FAILED",
+                    message="Failed to update auditor status"
+                ),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(
+            success_response(
+                data={
+                    "auditor_id": auditor.id,
+                    "status": auditor.status
+                }
+            ),
+            status=status.HTTP_200_OK
+        )

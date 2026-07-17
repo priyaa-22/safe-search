@@ -685,7 +685,7 @@ export default function App() {
   } else if (currentPath === "/admin/search") {
     adminPageContent = <AdminSearch showToast={showToast} />;
   } else if (currentPath === "/admin/metrics") {
-    adminPageContent = <AdminMetrics />;
+    adminPageContent = <AdminMetrics showToast={showToast} />;
   } else if (currentPath === "/admin/settings") {
     adminPageContent = <AdminSettings />;
   } else if (currentPath === "/admin/profile") {

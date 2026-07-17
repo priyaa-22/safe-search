@@ -1,21 +1,26 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "../services/api";
-import { rotateAuditorKey } from "../services/auditorService";
+import { downloadAuditorLogsPdf, rotateAuditorKey } from "../services/auditorService";
 import CreateAuditorCard from "./CreateAuditorCard";
 import { SkeletonStats } from "./Loader";
 import {
   PageHeader,
   InfoCard,
   ContentCard,
-  Badge,
   Button,
   Modal,
-  Divider,
+  SelectInput,
 } from "./ui";
 
-export default function MetricsPage({ role, showToast }) {
+export default function MetricsPage({ role, showToast, autoRefreshMs = 15000 }) {
   const resolvedRole = role?.toLowerCase() || "internal";
-  const isInternal = resolvedRole === "internal";
+  const isInternal = [
+    "internal",
+    "admin",
+    "administrator",
+    "super administrator",
+    "compliance officer",
+  ].includes(resolvedRole);
 
   const [internalData, setInternalData] = useState(null);
   const [externalData, setExternalData] = useState(null);
@@ -26,11 +31,16 @@ export default function MetricsPage({ role, showToast }) {
   // Key rotation display state
   const [rotatedKeyInfo, setRotatedKeyInfo] = useState(null);
   const [rotatingId, setRotatingId] = useState(null);
+  const [downloadingLogsId, setDownloadingLogsId] = useState(null);
+  const [selectedAuditorId, setSelectedAuditorId] = useState("");
   const [copied, setCopied] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError(null);
 
       if (isInternal) {
@@ -40,18 +50,57 @@ export default function MetricsPage({ role, showToast }) {
         const res = await api.get("/api/metrics/external/");
         setExternalData(res.data?.data || {});
       }
+      setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
       setError("Failed to load metrics");
-      showToast("Failed to fetch system metrics", "error");
+      if (!silent) {
+        showToast?.("Failed to fetch system metrics", "error");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  };
+  }, [isInternal, showToast]);
 
   useEffect(() => {
     fetchMetrics();
-  }, [resolvedRole]);
+  }, [fetchMetrics]);
+
+  useEffect(() => {
+    if (!autoRefreshMs || autoRefreshMs <= 0) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      fetchMetrics({ silent: true });
+    }, autoRefreshMs);
+
+    return () => window.clearInterval(intervalId);
+  }, [autoRefreshMs, fetchMetrics]);
+
+  useEffect(() => {
+    if (!isInternal) {
+      return;
+    }
+
+    const auditors = internalData?.auditors || [];
+    if (!auditors.length) {
+      if (selectedAuditorId) {
+        setSelectedAuditorId("");
+      }
+      return;
+    }
+
+    const selectedExists = auditors.some(
+      (auditor) => String(auditor.auditor_id) === String(selectedAuditorId)
+    );
+
+    if (!selectedAuditorId || !selectedExists) {
+      setSelectedAuditorId(String(auditors[0].auditor_id));
+    }
+  }, [internalData, isInternal, selectedAuditorId]);
 
   const handleDeleteAuditor = async (auditorId) => {
     if (!window.confirm("Are you sure you want to delete this auditor? This action cannot be undone.")) {
@@ -86,6 +135,27 @@ export default function MetricsPage({ role, showToast }) {
       showToast("Failed to rotate key", "error");
     } finally {
       setRotatingId(null);
+    }
+  };
+
+  const handleDownloadLogsPdf = async (auditor) => {
+    try {
+      setDownloadingLogsId(auditor.auditor_id);
+      const blobData = await downloadAuditorLogsPdf(auditor.auditor_id);
+      const url = window.URL.createObjectURL(new Blob([blobData]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `SecureMatch_Auditor_${auditor.name}_Logs.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      showToast?.("Auditor logs PDF downloaded", "success");
+    } catch (err) {
+      console.error("Log PDF download failed:", err);
+      showToast?.(err.message || "Failed to download auditor logs PDF", "error");
+    } finally {
+      setDownloadingLogsId(null);
     }
   };
 
@@ -154,6 +224,10 @@ export default function MetricsPage({ role, showToast }) {
   ========================= */
   const systemMetrics = internalData?.system_metrics || {};
   const auditors = internalData?.auditors || [];
+  const isSuperAdministrator = ["admin", "administrator", "super administrator"].includes(resolvedRole);
+  const selectedAuditor = auditors.find(
+    (auditor) => String(auditor.auditor_id) === String(selectedAuditorId)
+  );
 
   const modalFooter = (
     <>
@@ -184,6 +258,53 @@ export default function MetricsPage({ role, showToast }) {
         title="Analytics & Metrics"
         description="Real-time performance metrics, key directories, and secure searchable indexes."
       />
+
+      <div className="flex justify-end">
+        <span className="text-xs text-slate-500 font-mono">
+          Auto-refresh: {Math.round(autoRefreshMs / 1000)}s
+          {lastUpdated ? ` • Last sync ${lastUpdated.toLocaleTimeString()}` : ""}
+        </span>
+      </div>
+
+      {isSuperAdministrator && (
+        <ContentCard>
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h3 className="font-bold text-base sm:text-lg text-gray-900">Export Auditor Logs</h3>
+              <p className="text-xs text-gray-500 mt-1 font-light">
+                Download the latest auditor search activity as a PDF from the Security Analytics page.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+              <SelectInput
+                value={selectedAuditorId}
+                onChange={(event) => setSelectedAuditorId(event.target.value)}
+                options={
+                  auditors.length
+                    ? auditors.map((auditor) => ({
+                        value: String(auditor.auditor_id),
+                        label: `${auditor.name} (ID: ${auditor.auditor_id})`,
+                      }))
+                    : [{ value: "", label: "No auditors available" }]
+                }
+                className="min-w-72"
+                disabled={auditors.length === 0}
+              />
+              <Button
+                variant="secondary"
+                onClick={() => selectedAuditor && handleDownloadLogsPdf(selectedAuditor)}
+                disabled={!selectedAuditor || downloadingLogsId === selectedAuditor.auditor_id}
+                className="whitespace-nowrap"
+              >
+                {selectedAuditor && downloadingLogsId === selectedAuditor.auditor_id
+                  ? "Downloading..."
+                  : "Download Logs PDF"}
+              </Button>
+            </div>
+          </div>
+        </ContentCard>
+      )}
 
       {/* CREATE AUDITOR */}
       <CreateAuditorCard onCreated={fetchMetrics} showToast={showToast} />
@@ -249,6 +370,14 @@ export default function MetricsPage({ role, showToast }) {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleDownloadLogsPdf(auditor)}
+                      disabled={downloadingLogsId === auditor.auditor_id}
+                      className="px-3 py-1.5 shadow-sm text-xs text-slate-700"
+                    >
+                      {downloadingLogsId === auditor.auditor_id ? "Downloading..." : "Logs PDF"}
+                    </Button>
                     <Button
                       variant="secondary"
                       onClick={() => handleRotateKey(auditor.auditor_id)}

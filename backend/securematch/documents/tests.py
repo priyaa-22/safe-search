@@ -158,6 +158,15 @@ class RBACTests(TestCase):
         self.assert_forbidden(self.external_auditor, "get", url)
         self.assert_forbidden(self.read_only_analyst, "get", url)
 
+    def test_download_auditor_logs_pdf_permissions(self):
+        url = f"/api/auditor/{self.test_auditor.id}/logs/download/"
+        self.assert_allowed(self.super_admin, "get", url)
+        self.assert_allowed(self.compliance_officer, "get", url)
+
+        self.assert_forbidden(self.internal_analyst, "get", url)
+        self.assert_forbidden(self.external_auditor, "get", url)
+        self.assert_forbidden(self.read_only_analyst, "get", url)
+
     # 9. Internal Metrics
     def test_internal_metrics_permissions(self):
         url = "/api/metrics/internal/"
@@ -187,190 +196,404 @@ class RBACTests(TestCase):
         self.assertEqual(response.data["data"]["status"], "healthy")
         self.assertEqual(response.data["data"]["database"], "up")
 
+    # 12. Download Auditor Credentials
+    def test_download_auditor_credentials_permissions(self):
+        url = f"/api/auditor/{self.test_auditor.id}/download/"
+        self.assert_allowed(self.super_admin, "get", url)
+        self.assert_allowed(self.super_admin, "post", url, data={"private_key": "test-priv"})
+        self.assert_allowed(self.external_auditor, "get", url)
+        self.assert_allowed(self.external_auditor, "post", url, data={"private_key": "test-priv"})
+        
+        self.assert_forbidden(self.internal_analyst, "get", url)
+        self.assert_forbidden(self.compliance_officer, "get", url)
+        self.assert_forbidden(self.read_only_analyst, "get", url)
+        
+        self.assert_forbidden(self.internal_analyst, "post", url, data={"private_key": "test-priv"})
+        self.assert_forbidden(self.compliance_officer, "post", url, data={"private_key": "test-priv"})
+        self.assert_forbidden(self.read_only_analyst, "post", url, data={"private_key": "test-priv"})
 
-from documents.models import ExternalSearchAudit
-from crypto_engine.peks import generate_rsa_keypair, generate_trapdoor_private
 
-class AuditorActivityTimelineTests(TestCase):
+class CredentialTests(TestCase):
+    def test_fingerprint_generation(self):
+        from crypto_engine.peks import generate_rsa_keypair, get_public_key_fingerprint
+        _, public_key = generate_rsa_keypair()
+        fingerprint = get_public_key_fingerprint(public_key)
+        self.assertEqual(len(fingerprint), 64)  # SHA-256 is 64 hex characters
+        
+        # Verify fallback works for invalid key format
+        invalid_key = "invalid-public-key"
+        fp_fallback = get_public_key_fingerprint(invalid_key)
+        import hashlib
+        self.assertEqual(fp_fallback, hashlib.sha256(invalid_key.encode()).hexdigest())
+
+    def test_pdf_generation_and_download_flow(self):
+        from documents.models import Auditor
+        from documents.pdf_generator import generate_credential_pdf
+        from rest_framework.test import APIClient
+        from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import Group
+        
+        # Setup auditor
+        auditor = Auditor.objects.create(
+            name="Test Auditor PDF",
+            public_key="test-public-key",
+            key_version=2
+        )
+        
+        # Test PDF generator function directly
+        pdf_no_priv = generate_credential_pdf(auditor)
+        self.assertIsInstance(pdf_no_priv, bytes)
+        self.assertTrue(len(pdf_no_priv) > 100)
+        
+        pdf_with_priv = generate_credential_pdf(auditor, private_key="test-private-key")
+        self.assertIsInstance(pdf_with_priv, bytes)
+        self.assertTrue(len(pdf_with_priv) > 100)
+        
+        # Test download endpoint responses
+        client = APIClient()
+        super_admin_group, _ = Group.objects.get_or_create(name=Roles.ADMINISTRATOR)
+        super_admin = get_user_model().objects.create_user(username="test_admin_dl", password="password123")
+        super_admin.groups.add(super_admin_group)
+        client.force_authenticate(user=super_admin)
+        
+        # GET request
+        url = f"/api/auditor/{auditor.id}/download/"
+        response = client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertTrue(response.has_header('Content-Disposition'))
+        
+        # POST request
+        response_post = client.post(url, {"private_key": "my-private-key-test"})
+        self.assertEqual(response_post.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_post['Content-Type'], 'application/pdf')
+        
+        # Test 404 for non-existent auditor
+        response_404 = client.get("/api/auditor/99999/download/")
+        self.assertEqual(response_404.status_code, status.HTTP_404_NOT_FOUND)
+
+class AuditorProfileManagementTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.admin_group, _ = Group.objects.get_or_create(name=Roles.ADMINISTRATOR)
-        self.compliance_group, _ = Group.objects.get_or_create(name=Roles.COMPLIANCE_OFFICER)
-        self.analyst_group, _ = Group.objects.get_or_create(name=Roles.INTERNAL_ANALYST)
+
+        # Resolve or create default groups
+        self.super_admin_group, _ = Group.objects.get_or_create(name=Roles.ADMINISTRATOR)
+        self.compliance_officer_group, _ = Group.objects.get_or_create(name=Roles.COMPLIANCE_OFFICER)
         self.external_auditor_group, _ = Group.objects.get_or_create(name=Roles.EXTERNAL_AUDITOR)
 
-        self.super_admin = User.objects.create_user(username="super_admin_timeline", password="password123")
-        self.super_admin.groups.add(self.admin_group)
+        # Create users
+        self.super_admin = User.objects.create_user(username="super_admin_prof", password="password123")
+        self.super_admin.groups.add(self.super_admin_group)
 
-        self.compliance = User.objects.create_user(username="compliance_timeline", password="password123")
-        self.compliance.groups.add(self.compliance_group)
+        self.compliance_officer = User.objects.create_user(username="compliance_officer_prof", password="password123")
+        self.compliance_officer.groups.add(self.compliance_officer_group)
 
-        self.analyst = User.objects.create_user(username="analyst_timeline", password="password123")
-        self.analyst.groups.add(self.analyst_group)
+        self.external_auditor = User.objects.create_user(username="external_auditor_prof", password="password123")
+        self.external_auditor.groups.add(self.external_auditor_group)
 
-    def test_auditor_creation_key_generation_and_download_logs(self):
-        self.client.force_authenticate(user=self.super_admin)
-        
-        # 1. Auditor Creation
-        url = "/api/auditor/create/"
-        response = self.client.post(url, {"name": "Axis Bank"})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        auditor_id = response.data["data"]["auditor_id"]
-        
-        # Verify database logs
-        logs = ExternalSearchAudit.objects.filter(auditor_id=auditor_id).order_by("created_at")
-        
-        # We expect AUDITOR_CREATED, KEY_GENERATED, and CREDENTIAL_DOWNLOADED events
-        event_types = [log.event_type for log in logs]
-        self.assertIn("AUDITOR_CREATED", event_types)
-        self.assertIn("KEY_GENERATED", event_types)
-        self.assertIn("CREDENTIAL_DOWNLOADED", event_types)
-        
-        # Verify they are associated with the admin user who created it
-        for log in logs:
-            self.assertEqual(log.performed_by, self.super_admin)
-
-    def test_key_rotation_and_download_logs(self):
-        # Create an auditor first
-        auditor = Auditor.objects.create(name="SBI", public_key="initial-key", key_version=1)
-        
-        self.client.force_authenticate(user=self.super_admin)
-        url = "/api/auditor/rotate-key/"
-        response = self.client.post(url, {"auditor_id": auditor.id})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Verify rotation, generation, and download logs
-        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type__in=["KEY_ROTATED", "KEY_GENERATED", "CREDENTIAL_DOWNLOADED"])
-        self.assertEqual(logs.count(), 3)
-        
-        event_types = [log.event_type for log in logs]
-        self.assertIn("KEY_ROTATED", event_types)
-        self.assertIn("KEY_GENERATED", event_types)
-        self.assertIn("CREDENTIAL_DOWNLOADED", event_types)
-
-    def test_account_update_logs(self):
-        auditor = Auditor.objects.create(name="SBI", public_key="initial-key", key_version=1)
-        
-        self.client.force_authenticate(user=self.super_admin)
-        url = f"/api/auditor/{auditor.id}/update/"
-        response = self.client.patch(url, {"name": "SBI Updated"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Verify database log
-        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type="ACCOUNT_UPDATED")
-        self.assertEqual(logs.count(), 1)
-        self.assertEqual(logs.first().metadata["new_name"], "SBI Updated")
-
-    def test_account_deletion_logs(self):
-        auditor = Auditor.objects.create(name="SBI", public_key="initial-key", key_version=1)
-        
-        self.client.force_authenticate(user=self.super_admin)
-        url = f"/api/auditor/{auditor.id}/delete/"
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Verify database log (since the auditor is deleted, the ForeignKey is SET_NULL)
-        logs = ExternalSearchAudit.objects.filter(event_type="ACCOUNT_DELETED")
-        self.assertEqual(logs.count(), 1)
-        self.assertEqual(logs.first().metadata["name"], "SBI")
-
-    def test_external_search_logs(self):
-        private_key, public_key = generate_rsa_keypair()
-        auditor = Auditor.objects.create(name="ICICI", public_key=public_key, key_version=1)
-        
-        keyword_hash, signature = generate_trapdoor_private("test-keyword", private_key)
-        
-        self.client.force_authenticate(user=self.super_admin)
-        url = "/api/search/external/"
-        response = self.client.post(url, {
-            "auditor_id": auditor.id,
-            "key_version": 1,
-            "keyword_hash": keyword_hash,
-            "signature": signature
-        })
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Verify log exists
-        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type="EXTERNAL_SEARCH")
-        self.assertEqual(logs.count(), 1)
-        self.assertTrue(logs.first().success)
-
-    def test_verify_auditor_credentials_logs(self):
-        import hashlib
-        private_key, public_key = generate_rsa_keypair()
-        auditor = Auditor.objects.create(name="HDFC", public_key=public_key, key_version=1)
-        
-        # Valid signature
-        probe = f"auditor-probe:{auditor.id}"
-        _, signature = generate_trapdoor_private(probe, private_key)
-        
-        self.client.force_authenticate(user=self.super_admin)
-        url = "/api/auditor/verify/"
-        response = self.client.post(url, {
-            "auditor_id": auditor.id,
-            "signature": signature
-        })
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Verify success log
-        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type="CREDENTIAL_DOWNLOADED").order_by("-created_at")
-        self.assertEqual(logs.count(), 1)
-        self.assertTrue(logs.first().success)
-        self.assertEqual(logs.first().metadata.get("action"), "verify")
-        
-        # Invalid signature
-        response_fail = self.client.post(url, {
-            "auditor_id": auditor.id,
-            "signature": "a" * 128  # Invalid hex / signature
-        })
-        self.assertEqual(response_fail.status_code, status.HTTP_403_FORBIDDEN)
-        
-        # Verify failure log
-        logs = ExternalSearchAudit.objects.filter(auditor=auditor, event_type="CREDENTIAL_DOWNLOADED").order_by("-created_at")
-        self.assertEqual(logs.count(), 2)
-        self.assertFalse(logs.first().success)
-        self.assertEqual(logs.first().failure_reason, "INVALID_SIGNATURE")
-
-    def test_timeline_api_ordering_and_permissions(self):
-        # Create some events
-        auditor = Auditor.objects.create(name="SBI", public_key="key", key_version=1)
-        
-        # Create logs manually with differing timestamps
-        from django.utils import timezone
-        
-        log1 = ExternalSearchAudit.objects.create(
-            auditor=auditor,
-            event_type="AUDITOR_CREATED",
-            success=True,
-            created_at=timezone.now() - timezone.timedelta(seconds=10)
+        # Create initial test auditors
+        self.auditor = Auditor.objects.create(
+            name="SBI Auditor",
+            public_key="sbi-public-key-data",
+            email="sbi@auditor.com",
+            phone="+919876543210",
+            designation="Senior Auditor",
+            status="ACTIVE"
         )
-        log2 = ExternalSearchAudit.objects.create(
-            auditor=auditor,
-            event_type="KEY_ROTATED",
-            success=True,
-            created_at=timezone.now()
+        self.other_auditor = Auditor.objects.create(
+            name="ICICI Auditor",
+            public_key="icici-public-key-data",
+            email="icici@auditor.com",
+            phone="+919876543211",
+            designation="Junior Auditor",
+            status="ACTIVE"
         )
-        
-        url = "/api/auditor/timeline/"
-        
-        # 1. Super Admin (Allowed)
+
+    # --------------------------------------------------
+    # Retrieve Profile Tests
+    # --------------------------------------------------
+    def test_retrieve_profile_success_admin(self):
+        url = f"/api/auditor/{self.auditor.id}/"
         self.client.force_authenticate(user=self.super_admin)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Check ordering: log2 (newest) should be first, log1 should be second
-        results = response.data["data"]["results"]
-        self.assertEqual(results[0]["id"], log2.id)
-        self.assertEqual(results[1]["id"], log1.id)
-        
-        # 2. Compliance Officer (Allowed)
-        self.client.force_authenticate(user=self.compliance)
+        self.assertEqual(response.data["status"], "success")
+        data = response.data["data"]
+        self.assertEqual(data["id"], self.auditor.id)
+        self.assertEqual(data["name"], "SBI Auditor")
+        self.assertEqual(data["email"], "sbi@auditor.com")
+        self.assertEqual(data["status"], "ACTIVE")
+        self.assertEqual(data["public_key"], "sbi-public-key-data")
+        self.assertEqual(data["key_version"], 1)
+
+    def test_retrieve_profile_success_compliance_officer(self):
+        url = f"/api/auditor/{self.auditor.id}/"
+        self.client.force_authenticate(user=self.compliance_officer)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # 3. Internal Analyst (Forbidden)
-        self.client.force_authenticate(user=self.analyst)
+        self.assertEqual(response.data["status"], "success")
+
+    def test_retrieve_profile_forbidden_external_auditor(self):
+        url = f"/api/auditor/{self.auditor.id}/"
+        self.client.force_authenticate(user=self.external_auditor)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_retrieve_profile_not_found(self):
+        url = "/api/auditor/99999/"
+        self.client.force_authenticate(user=self.super_admin)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["status"], "error")
+        self.assertEqual(response.data["error"]["code"], "AUDITOR_NOT_FOUND")
+
+    # --------------------------------------------------
+    # Update Profile Tests
+    # --------------------------------------------------
+    def test_update_profile_success_patch(self):
+        url = f"/api/auditor/{self.auditor.id}/update/"
+        self.client.force_authenticate(user=self.super_admin)
+        payload = {
+            "name": "SBI Updated Auditor",
+            "email": "sbi.new@auditor.com",
+            "phone": "+918888888888",
+            "designation": "Executive Auditor"
+        }
+        response = self.client.patch(url, payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "success")
+        data = response.data["data"]
+        self.assertEqual(data["name"], "SBI Updated Auditor")
+        self.assertEqual(data["email"], "sbi.new@auditor.com")
+        self.assertEqual(data["status"], "ACTIVE")  # Unaffected
+
+    def test_update_profile_success_put(self):
+        url = f"/api/auditor/{self.auditor.id}/update/"
+        self.client.force_authenticate(user=self.super_admin)
+        payload = {
+            "name": "SBI Put Auditor",
+            "email": "sbi.put@auditor.com",
+            "phone": "+917777777777",
+            "designation": "Lead Auditor"
+        }
+        response = self.client.put(url, payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data["data"]
+        self.assertEqual(data["name"], "SBI Put Auditor")
+
+    def test_update_profile_ignores_read_only_fields(self):
+        url = f"/api/auditor/{self.auditor.id}/update/"
+        self.client.force_authenticate(user=self.super_admin)
+        payload = {
+            "name": "SBI Field Auditor",
+            "public_key": "hacked-public-key",
+            "key_version": 99,
+            "id": 9999
+        }
+        response = self.client.patch(url, payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.auditor.refresh_from_db()
+        self.assertEqual(self.auditor.name, "SBI Field Auditor")
+        self.assertEqual(self.auditor.public_key, "sbi-public-key-data")
+        self.assertEqual(self.auditor.key_version, 1)
+        self.assertNotEqual(self.auditor.id, 9999)
+
+    def test_update_profile_validation_errors(self):
+        url = f"/api/auditor/{self.auditor.id}/update/"
+        self.client.force_authenticate(user=self.super_admin)
+
+        # 1. Empty name
+        response = self.client.patch(url, {"name": ""})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+        self.assertIn("name", response.data["error"]["details"])
+
+        # 2. Min length name
+        response = self.client.patch(url, {"name": "ab"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data["error"]["details"])
+
+        # 3. Invalid email format
+        response = self.client.patch(url, {"email": "invalid-email"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data["error"]["details"])
+
+        # 4. Duplicate email
+        response = self.client.patch(url, {"email": "icici@auditor.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data["error"]["details"])
+
+        # 5. Duplicate name
+        response = self.client.patch(url, {"name": "ICICI Auditor"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data["error"]["details"])
+
+        # 6. Invalid phone format
+        response = self.client.patch(url, {"phone": "12345"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data["error"]["details"])
+
+    # --------------------------------------------------
+    # Status Management Tests
+    # --------------------------------------------------
+    def test_update_status_success(self):
+        url = f"/api/auditor/{self.auditor.id}/status/"
+        self.client.force_authenticate(user=self.super_admin)
+        response = self.client.patch(url, {"status": "DISABLED"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "success")
+        self.assertEqual(response.data["data"]["status"], "DISABLED")
+        self.auditor.refresh_from_db()
+        self.assertEqual(self.auditor.status, "DISABLED")
+
+        # Set back to ACTIVE
+        response = self.client.patch(url, {"status": "ACTIVE"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["status"], "ACTIVE")
+
+    def test_update_status_invalid_value(self):
+        url = f"/api/auditor/{self.auditor.id}/status/"
+        self.client.force_authenticate(user=self.super_admin)
+        response = self.client.patch(url, {"status": "PENDING"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+        self.assertIn("status", response.data["error"]["details"])
+
+    def test_update_status_forbidden_compliance_officer(self):
+        url = f"/api/auditor/{self.auditor.id}/status/"
+        self.client.force_authenticate(user=self.compliance_officer)
+        response = self.client.patch(url, {"status": "DISABLED"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class RESTfulAuditorTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        
+        self.admin_group, _ = Group.objects.get_or_create(name=Roles.ADMINISTRATOR)
+        self.compliance_group, _ = Group.objects.get_or_create(name=Roles.COMPLIANCE_OFFICER)
+        
+        self.admin = User.objects.create_user(username="rest_admin", password="password123")
+        self.admin.groups.add(self.admin_group)
+        
+        self.compliance = User.objects.create_user(username="rest_compliance", password="password123")
+        self.compliance.groups.add(self.compliance_group)
+        
+        self.auditor = Auditor.objects.create(
+            name="SBI REST Auditor",
+            email="sbi.rest@auditor.com",
+            phone="+919876543210",
+            designation="Senior REST Auditor",
+            status="ACTIVE",
+            public_key="some-key",
+            key_version=1
+        )
+
+    def test_list_auditors_success(self):
+        url = "/api/auditors/"
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["data"]), 1)
+        self.assertEqual(response.data["data"][0]["name"], "SBI REST Auditor")
+
+    def test_list_auditors_search_and_filter(self):
+        url = "/api/auditors/"
+        self.client.force_authenticate(user=self.admin)
+        
+        # Search query matching
+        response = self.client.get(url, {"search": "REST"})
+        self.assertEqual(len(response.data["data"]), 1)
+        
+        # Search query not matching
+        response = self.client.get(url, {"search": "Nonexistent"})
+        self.assertEqual(len(response.data["data"]), 0)
+        
+        # Status matching
+        response = self.client.get(url, {"status": "ACTIVE"})
+        self.assertEqual(len(response.data["data"]), 1)
+        
+        # Status not matching
+        response = self.client.get(url, {"status": "DISABLED"})
+        self.assertEqual(len(response.data["data"]), 0)
+
+    def test_create_auditor_restful(self):
+        url = "/api/auditors/"
+        self.client.force_authenticate(user=self.admin)
+        
+        payload = {
+            "name": "HDFC REST Auditor",
+            "email": "hdfc.rest@auditor.com",
+            "phone": "+919876543219",
+            "designation": "HDFC Specialist",
+            "status": "ACTIVE"
+        }
+        response = self.client.post(url, payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("private_key", response.data["data"])
+        self.assertIn("temporary_password", response.data["data"])
+        self.assertIn("username", response.data["data"])
+        self.assertEqual(response.data["data"]["name"], "HDFC REST Auditor")
+        
+        # Verify user account was created in DB
+        created_user = User.objects.get(username=response.data["data"]["username"])
+        self.assertTrue(created_user.groups.filter(name=Roles.EXTERNAL_AUDITOR).exists())
+        self.assertTrue(created_user.is_active)
+
+    def test_get_auditor_detail_restful(self):
+        url = f"/api/auditors/{self.auditor.id}/"
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["name"], "SBI REST Auditor")
+
+    def test_patch_auditor_detail_restful(self):
+        url = f"/api/auditors/{self.auditor.id}/"
+        self.client.force_authenticate(user=self.admin)
+        
+        payload = {
+            "name": "SBI Updated REST Auditor",
+            "status": "DISABLED"
+        }
+        
+        # Create corresponding user to test status change deactivation
+        User.objects.create_user(username="auditor_sbi_rest_auditor", email="sbi.rest@auditor.com", is_active=True)
+        
+        response = self.client.patch(url, payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["name"], "SBI Updated REST Auditor")
+        self.assertEqual(response.data["data"]["status"], "DISABLED")
+        
+        # Verify corresponding user was deactivated
+        user = User.objects.get(username="auditor_sbi_rest_auditor")
+        self.assertFalse(user.is_active)
+
+    def test_delete_auditor_restful(self):
+        url = f"/api/auditors/{self.auditor.id}/"
+        self.client.force_authenticate(user=self.admin)
+        
+        # Create user account to verify deletion
+        User.objects.create_user(username="auditor_sbi_rest_auditor", email="sbi.rest@auditor.com")
+        
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(Auditor.objects.filter(id=self.auditor.id).exists())
+        self.assertFalse(User.objects.filter(username="auditor_sbi_rest_auditor").exists())
+
+    def test_rotate_key_restful(self):
+        url = f"/api/auditors/{self.auditor.id}/rotate-key/"
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("new_private_key", response.data["data"])
+        self.assertIn("new_public_key", response.data["data"])
+        self.assertEqual(response.data["data"]["new_key_version"], 2)
+
+    def test_download_credentials_restful(self):
+        url = f"/api/auditors/{self.auditor.id}/credentials/"
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
 
 

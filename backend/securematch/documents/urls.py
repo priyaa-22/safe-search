@@ -6,13 +6,20 @@ from .views import (
     RotateAuditorKeyView,
     VerifyAuditorCredentialsView,
     AuditorLogsView,
+    DownloadAuditorLogsPdfView,
     InternalMetricsView,
     ExternalMetricsView,
     CreateAuditorView,
     DeleteAuditorView,
+    DownloadAuditorCredentialsView,
+    AuditorProfileRetrieveView,
+    AuditorProfileUpdateView,
+    AuditorStatusUpdateView,
+    AuditorListCreateView,
+    AuditorDetailView,
+    AuditorRotateKeyPathView,
+    AuditorCredentialsPathView,
     HealthCheckView,
-    UpdateAuditorView,
-    AuditorTimelineView,
 )
 
 urlpatterns = [
@@ -23,12 +30,20 @@ urlpatterns = [
     path("auditor/verify/", VerifyAuditorCredentialsView.as_view()),
     path("auditor/rotate-key/", RotateAuditorKeyView.as_view()),
     path("auditor/<int:auditor_id>/logs/", AuditorLogsView.as_view()),
+    path("auditor/<int:auditor_id>/logs/download/", DownloadAuditorLogsPdfView.as_view()),
     path("metrics/internal/", InternalMetricsView.as_view()),
     path("metrics/external/", ExternalMetricsView.as_view()),
-    path("auditor/rotate-key/", RotateAuditorKeyView.as_view()),
     path("auditor/create/", CreateAuditorView.as_view()),
     path("auditor/<int:auditor_id>/delete/", DeleteAuditorView.as_view()),
-    path("auditor/<int:auditor_id>/update/", UpdateAuditorView.as_view()),
-    path("auditor/timeline/", AuditorTimelineView.as_view()),
+    path("auditor/<int:auditor_id>/download/", DownloadAuditorCredentialsView.as_view()),
+    path("auditor/<int:id>/", AuditorProfileRetrieveView.as_view()),
+    path("auditor/<int:id>/update/", AuditorProfileUpdateView.as_view()),
+    path("auditor/<int:id>/status/", AuditorStatusUpdateView.as_view()),
+    
+    # RESTful Auditor Endpoints
+    path("auditors/", AuditorListCreateView.as_view()),
+    path("auditors/<int:id>/", AuditorDetailView.as_view()),
+    path("auditors/<int:id>/rotate-key/", AuditorRotateKeyPathView.as_view()),
+    path("auditors/<int:id>/credentials/", AuditorCredentialsPathView.as_view()),
 ]
 
