@@ -1,6 +1,6 @@
 # Project File Structure
 
-This document provides a comprehensive overview of the `safe-search` project file structure, including a directory tree and a detailed summary of every file in the codebase.
+This document provides a comprehensive overview of the `safe-search` project file structure.
 
 ---
 
@@ -8,164 +8,340 @@ This document provides a comprehensive overview of the `safe-search` project fil
 
 ```text
 safe-search/
-├── 🔑 Auditor Private Keys (Sample credentials)
-│   ├── [HDFC](file:///home/spidy/Desktop/projects/safe-search/HDFC)
-│   ├── [ICICI](file:///home/spidy/Desktop/projects/safe-search/ICICI)
-│   ├── [IDFC](file:///home/spidy/Desktop/projects/safe-search/IDFC)
-│   └── [LIC](file:///home/spidy/Desktop/projects/safe-search/LIC)
-├── ⚙️ Root Configuration & Documentation
-│   ├── [README.md](file:///home/spidy/Desktop/projects/safe-search/README.md)
-│   ├── [render.yaml](file:///home/spidy/Desktop/projects/safe-search/render.yaml)
-│   ├── [summary.md](file:///home/spidy/Desktop/projects/safe-search/summary.md)
-│   └── [url endpoints](file:///home/spidy/Desktop/projects/safe-search/url%20endpoints)
-├── 🔌 Backend Application (Django REST API)
-│   ├── [backend/.dockerignore](file:///home/spidy/Desktop/projects/safe-search/backend/.dockerignore)
-│   ├── [backend/.env](file:///home/spidy/Desktop/projects/safe-search/backend/.env)
-│   ├── [backend/Dockerfile](file:///home/spidy/Desktop/projects/safe-search/backend/Dockerfile)
-│   ├── [backend/requirements.txt](file:///home/spidy/Desktop/projects/safe-search/backend/requirements.txt)
-│   └── securematch/ (Django Project Root)
-│       ├── [manage.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/manage.py)
-│       ├── securematch/ (Core Project App)
-│       │   ├── [__init__.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/__init__.py)
-│       │   ├── [asgi.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/asgi.py)
-│       │   ├── [settings.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/settings.py)
-│       │   ├── [urls.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/urls.py)
-│       │   └── [wsgi.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/wsgi.py)
-│       ├── crypto_engine/ (Cryptographic Logic Layer)
-│       │   ├── [__init__.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/__init__.py)
-│       │   ├── [admin.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/admin.py)
-│       │   ├── [apps.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/apps.py)
-│       │   ├── [key_manager.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/key_manager.py)
-│       │   ├── [models.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/models.py)
-│       │   ├── [peks.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/peks.py)
-│       │   ├── [sse.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/sse.py)
-│       │   ├── [tests.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/tests.py)
-│       │   └── [views.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/views.py)
-│       └── documents/ (Documents Index & Search App)
-│           ├── [__init__.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/__init__.py)
-│           ├── [admin.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/admin.py)
-│           ├── [apps.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/apps.py)
-│           ├── [constants.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/constants.py)
-│           ├── [models.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/models.py)
-│           ├── [tests.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/tests.py)
-│           ├── [urls.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/urls.py)
-│           ├── [utils.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/utils.py)
-│           ├── [views.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/views.py)
-│           └── migrations/
-│               └── ...
-└── 💻 Frontend Application (React + Vite + Tailwind CSS v4)
-    ├── [frontend/README.md](file:///home/spidy/Desktop/projects/safe-search/frontend/README.md)
-    ├── [frontend/eslint.config.js](file:///home/spidy/Desktop/projects/safe-search/frontend/eslint.config.js)
-    ├── [frontend/index.html](file:///home/spidy/Desktop/projects/safe-search/frontend/index.html)
-    ├── [frontend/package.json](file:///home/spidy/Desktop/projects/safe-search/frontend/package.json)
-    ├── [frontend/vite.config.js](file:///home/spidy/Desktop/projects/safe-search/frontend/vite.config.js)
-    └── src/
-        ├── [App.css](file:///home/spidy/Desktop/projects/safe-search/frontend/src/App.css)
-        ├── [App.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/App.jsx)
-        ├── [index.css](file:///home/spidy/Desktop/projects/safe-search/frontend/src/index.css)
-        ├── [main.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/main.jsx)
-        ├── components/ (UI View Pages & Elements)
-        │   ├── [CreateAuditorCard.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/CreateAuditorCard.jsx)
-        │   ├── [MetricsPage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/MetricsPage.jsx)
-        │   ├── [Navbar.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/Navbar.jsx)
-        │   ├── [SearchPage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/SearchPage.jsx)
-        │   ├── [StoragePage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/StoragePage.jsx)
-        │   └── [UploadPage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/UploadPage.jsx)
-        ├── pages/ (React Page Shells)
-        │   └── [Dashboard.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/pages/Dashboard.jsx)
-        ├── services/ (Axios REST Connectors)
-        │   ├── [api.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/api.js)
-        │   ├── [auditorService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/auditorService.js)
-        │   ├── [externalSearchService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/externalSearchService.js)
-        │   ├── [internalSearchService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/internalSearchService.js)
-        │   └── [uploadService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/uploadService.js)
-        └── utils/ (Browser Helpers)
-            ├── [crypto.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/utils/crypto.js)
-            └── [errorHandler.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/utils/errorHandler.js)
+├── backend/
+│   ├── docs/
+│   │   └── API_DOCUMENTATION.md
+│   ├── securematch/
+│   │   ├── accounts/
+│   │   │   ├── api/
+│   │   │   ├── migrations/
+│   │   │   │   ├── 0001_initial.py
+│   │   │   │   ├── 0002_remove_user_is_verified_remove_user_role.py
+│   │   │   │   └── __init__.py
+│   │   │   ├── serializers/
+│   │   │   ├── services/
+│   │   │   ├── utils/
+│   │   │   ├── __init__.py
+│   │   │   ├── admin.py
+│   │   │   ├── apps.py
+│   │   │   ├── constants.py
+│   │   │   ├── exception_handler.py
+│   │   │   ├── models.py
+│   │   │   ├── permissions.py
+│   │   │   ├── serializers.py
+│   │   │   ├── signals.py
+│   │   │   ├── tests.py
+│   │   │   ├── urls.py
+│   │   │   ├── utils.py
+│   │   │   └── views.py
+│   │   ├── crypto_engine/
+│   │   │   ├── migrations/
+│   │   │   │   └── __init__.py
+│   │   │   ├── __init__.py
+│   │   │   ├── admin.py
+│   │   │   ├── apps.py
+│   │   │   ├── key_manager.py
+│   │   │   ├── models.py
+│   │   │   ├── peks.py
+│   │   │   ├── sse.py
+│   │   │   ├── tests.py
+│   │   │   └── views.py
+│   │   ├── documents/
+│   │   │   ├── migrations/
+│   │   │   │   ├── 0001_initial.py
+│   │   │   │   ├── 0002_auditor.py
+│   │   │   │   ├── 0003_searchtokenindex_external_token.py
+│   │   │   │   ├── 0004_externalsearchaudit.py
+│   │   │   │   ├── 0005_alter_externalsearchaudit_options_and_more.py
+│   │   │   │   ├── 0006_alter_auditor_options_and_more.py
+│   │   │   │   ├── 0007_auditor_designation_auditor_email_auditor_phone_and_more.py
+│   │   │   │   └── __init__.py
+│   │   │   ├── services/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── auditor_service.py
+│   │   │   │   ├── credential_service.py
+│   │   │   │   ├── key_service.py
+│   │   │   │   └── log_export_service.py
+│   │   │   ├── __init__.py
+│   │   │   ├── admin.py
+│   │   │   ├── apps.py
+│   │   │   ├── constants.py
+│   │   │   ├── models.py
+│   │   │   ├── pdf_generator.py
+│   │   │   ├── serializers.py
+│   │   │   ├── tests.py
+│   │   │   ├── urls.py
+│   │   │   ├── utils.py
+│   │   │   └── views.py
+│   │   ├── securematch/
+│   │   │   ├── __init__.py
+│   │   │   ├── asgi.py
+│   │   │   ├── settings.py
+│   │   │   ├── urls.py
+│   │   │   └── wsgi.py
+│   │   ├── .gitignore
+│   │   └── manage.py
+│   ├── .dockerignore
+│   ├── .env
+│   ├── CURRENT_STATUS.md
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── admin/
+│   │   │   │   ├── PageHeader.jsx
+│   │   │   │   ├── Sidebar.jsx
+│   │   │   │   ├── StatCard.jsx
+│   │   │   │   └── TopNavbar.jsx
+│   │   │   ├── iam/
+│   │   │   │   ├── DeleteIdentityDialog.jsx
+│   │   │   │   ├── DisableIdentityDialog.jsx
+│   │   │   │   ├── EmptyState.jsx
+│   │   │   │   ├── IdentityFilters.jsx
+│   │   │   │   ├── IdentityModal.jsx
+│   │   │   │   ├── IdentityRow.jsx
+│   │   │   │   ├── IdentitySearch.jsx
+│   │   │   │   ├── IdentityTable.jsx
+│   │   │   │   └── LoadingSkeleton.jsx
+│   │   │   ├── ui/
+│   │   │   │   ├── Badge/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Button/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Card/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Divider/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── EmptyState/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Input/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── LoadingSkeleton/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Modal/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── PageHeader/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Section/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── StatusBadge/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Table/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Terminal/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   ├── Toolbar/
+│   │   │   │   │   └── index.jsx
+│   │   │   │   └── index.js
+│   │   │   ├── CreateAuditorCard.jsx
+│   │   │   ├── Loader.jsx
+│   │   │   ├── MetricsPage.jsx
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── SearchPage.jsx
+│   │   │   ├── StoragePage.jsx
+│   │   │   ├── Terminal.jsx
+│   │   │   ├── Toast.jsx
+│   │   │   └── UploadPage.jsx
+│   │   ├── config/
+│   │   │   └── permissions.js
+│   │   ├── constants/
+│   │   │   ├── features.js
+│   │   │   ├── roles.js
+│   │   │   ├── routes.js
+│   │   │   └── status.js
+│   │   ├── context/
+│   │   │   └── AuthContext.jsx
+│   │   ├── hooks/
+│   │   │   ├── useAuditors.js
+│   │   │   ├── useDashboard.js
+│   │   │   ├── useIdentity.js
+│   │   │   └── usePermissions.js
+│   │   ├── layouts/
+│   │   │   └── AdminLayout.jsx
+│   │   ├── mock/
+│   │   │   ├── analytics.js
+│   │   │   ├── auditors.js
+│   │   │   ├── dashboard.js
+│   │   │   ├── documents.js
+│   │   │   ├── identities.js
+│   │   │   └── search.js
+│   │   ├── pages/
+│   │   │   ├── admin/
+│   │   │   │   ├── Auditors.jsx
+│   │   │   │   ├── Dashboard.jsx
+│   │   │   │   ├── Documents.jsx
+│   │   │   │   ├── IAM.jsx
+│   │   │   │   ├── Metrics.jsx
+│   │   │   │   ├── Profile.jsx
+│   │   │   │   ├── Search.jsx
+│   │   │   │   ├── Settings.jsx
+│   │   │   │   └── Users.jsx
+│   │   │   └── Dashboard.jsx
+│   │   ├── routes/
+│   │   │   ├── PermissionRoute.jsx
+│   │   │   ├── ProtectedRoute.jsx
+│   │   │   └── RoleRoute.jsx
+│   │   ├── services/
+│   │   │   ├── analytics.js
+│   │   │   ├── api.js
+│   │   │   ├── auditor.js
+│   │   │   ├── auditorService.js
+│   │   │   ├── auth.js
+│   │   │   ├── documents.js
+│   │   │   ├── externalSearchService.js
+│   │   │   ├── identity.js
+│   │   │   ├── internalSearchService.js
+│   │   │   ├── search.js
+│   │   │   ├── settings.js
+│   │   │   └── uploadService.js
+│   │   ├── types/
+│   │   │   ├── analytics.js
+│   │   │   ├── auditor.js
+│   │   │   ├── documents.js
+│   │   │   ├── identity.js
+│   │   │   └── search.js
+│   │   ├── utils/
+│   │   │   ├── crypto.js
+│   │   │   ├── errorHandler.js
+│   │   │   └── errors.js
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   └── main.jsx
+│   ├── .gitignore
+│   ├── README.md
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js
+├── README.md
+├── authentication.md
+├── filestructure.md
+├── render.yaml
+├── summary.md
+├── test
+└── url endpoints
 ```
 
 ---
 
 ## Detailed File Summaries
 
-### Root Level Files
-
-| File | Purpose |
-| :--- | :--- |
-| **[HDFC](file:///home/spidy/Desktop/projects/safe-search/HDFC)** | Sample PEM RSA private key file for the HDFC external auditor identity, used in testing auditor searches. |
-| **[ICICI](file:///home/spidy/Desktop/projects/safe-search/ICICI)** | Sample PEM RSA private key file for the ICICI external auditor identity. |
-| **[IDFC](file:///home/spidy/Desktop/projects/safe-search/IDFC)** | Sample PEM RSA private key file for the IDFC external auditor identity. |
-| **[LIC](file:///home/spidy/Desktop/projects/safe-search/LIC)** | Sample PEM RSA private key file for the LIC external auditor identity. |
-| **[README.md](file:///home/spidy/Desktop/projects/safe-search/README.md)** | High-level instructions covering implementation logic, database schema, REST endpoints overview, environment setup, and local run guides. |
-| **[render.yaml](file:///home/spidy/Desktop/projects/safe-search/render.yaml)** | Environment infrastructure configurations for deploying the containerized Django service to the Render cloud platform. |
-| **[url endpoints](file:///home/spidy/Desktop/projects/safe-search/url%20endpoints)** | Plain text documentation detailing available REST API endpoints and HTTP methods for reference. |
-| **[summary.md](file:///home/spidy/Desktop/projects/safe-search/summary.md)** | Comprehensive project design documentation outlining architecture rationale, backend frameworks, cryptographic algorithms, models, and UI flows. |
-
----
-
-### Backend Application (`backend/`)
-
-#### Build & Environment Configurations
-- **[backend/.dockerignore](file:///home/spidy/Desktop/projects/safe-search/backend/.dockerignore)**: Defines paths, virtual environments, and caches excluded from being copied into the backend Docker image.
-- **[backend/.env](file:///home/spidy/Desktop/projects/safe-search/backend/.env)**: Holds local development secrets, such as API configurations, debug controls, database connection strings, and the cryptographic master key base64 seed.
-- **[backend/Dockerfile](file:///home/spidy/Desktop/projects/safe-search/backend/Dockerfile)**: Script instructions to build the Django Docker container based on Python 3.11-slim, compiling packages and hosting via Gunicorn on port `8000`.
-- **[backend/requirements.txt](file:///home/spidy/Desktop/projects/safe-search/backend/requirements.txt)**: Python package list detailing dependencies like `Django`, `djangorestframework`, `cryptography`, `psycopg2-binary`, `gunicorn`, and `whitenoise`.
-
-#### Django Configuration Settings
-- **[backend/securematch/manage.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/manage.py)**: Central Django administrative CLI helper utility.
-- **[backend/securematch/securematch/settings.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/settings.py)**: Global config file for Django, defining database setup (PostgreSQL), CORS headers, rate-limiting throttle scopes (`upload`, `search`), WhiteNoise middleware, and security variables.
-- **[backend/securematch/securematch/urls.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/urls.py)**: Main URL routing table directing admin and `/api/` traffic to respective sub-modules.
-- **[backend/securematch/securematch/asgi.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/asgi.py)** / **[wsgi.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/securematch/wsgi.py)**: Application entry points mapping the Django project to modern ASGI/WSGI web service gateways.
-
-#### Cryptographic Engine (`backend/securematch/crypto_engine/`)
-- **[key_manager.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/key_manager.py)**: Functions [load_master_key](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/key_manager.py#L9) and [derive_keys](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/key_manager.py#L23) that decode the environmental `MASTER_KEY` and apply HKDF-SHA256 key derivation to obtain subkeys for symmetric document encryption (AES) and index verification (HMAC).
-- **[peks.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/peks.py)**: Houses RSA asymmetric signature utilities: [generate_keypair](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/peks.py#L12) to produce 2048-bit keypairs, [hash_keyword](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/peks.py#L44) to hash keywords deterministically using SHA-256, [generate_trapdoor_private](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/peks.py#L57) for signing keyword hashes, and [verify_signature](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/peks.py#L88) to validate signed requests from auditors.
-- **[sse.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/sse.py)**: Implements Symmetric Searchable Encryption functions. Contains [encrypt_document](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/sse.py#L21) / [decrypt_document](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/sse.py#L41) using AES-256-GCM alongside [generate_token](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/sse.py#L64) / [generate_trapdoor](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/crypto_engine/sse.py#L82) using HMAC-SHA256 to hash keywords on searchable fields.
-
-#### Documents Database Management & Business Logic (`backend/securematch/documents/`)
-- **[constants.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/constants.py)**: Lists [SEARCHABLE_FIELDS](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/constants.py#L1) (`pan`, `compliance_flag`, `name`, `customer_id`, `aadhaar`) subjected to indexing.
-- **[models.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/models.py)**: Django ORM database model mappings:
-  - `EncryptedDocument`: Stores JSON values containing encrypted data blobs (`nonce` + `ciphertext`).
-  - `SearchTokenIndex`: Inverted token lookup index storing internal tokens (HMAC-SHA256) and external tokens (SHA-256 deterministic hashes) pointing back to `EncryptedDocument` relations.
-  - `Auditor`: Table listing registered external auditors, their key versions, and public keys.
-  - `ExternalSearchAudit`: Audit logging registry tracking request metadata (success state, key version, timing records).
-- **[urls.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/urls.py)**: Maps URL path extensions to corresponding API classes (e.g., `upload/`, `search/internal/`, `search/external/`, metrics).
-- **[utils.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/utils.py)**: Standardizes API response structures via helper functions [success_response](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/utils.py#L4) and [error_response](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/utils.py#L26).
-- **[views.py](file:///home/spidy/Desktop/projects/safe-search/backend/securematch/documents/views.py)**: Controllers coordinating API logic:
-  - `UploadDocumentView`: Throttled POST handler to encrypt raw data and save search indices.
-  - `InternalSearchView`: Search endpoint for internal analysts using HMAC trapdoors (returns fully decrypted documents).
-  - `ExternalSearchView`: Auditor query endpoint verifying signatures and returning fixed-size padded encrypted payloads (mitigates size-based metadata leaks).
-  - `CreateAuditorView` / `DeleteAuditorView` / `RotateAuditorKeyView`: REST interfaces managing the auditor directory and RSA key updates.
-  - `InternalMetricsView` / `ExternalMetricsView`: Exposes real-time system performance data, transaction counters, and auditor metrics.
-
----
-
-### Frontend Application (`frontend/`)
-
-#### React App Shell Configuration
-- **[frontend/README.md](file:///home/spidy/Desktop/projects/safe-search/frontend/README.md)**: Standard manual listing steps to bootstrap and compile the React application.
-- **[frontend/eslint.config.js](file:///home/spidy/Desktop/projects/safe-search/frontend/eslint.config.js)**: Configures rules for checking script syntax and style guidelines.
-- **[frontend/index.html](file:///home/spidy/Desktop/projects/safe-search/frontend/index.html)**: Main HTML container rendering the React elements.
-- **[frontend/package.json](file:///home/spidy/Desktop/projects/safe-search/frontend/package.json)**: Declares NPM dependencies (Vite, React 19, Axios, Tailwind CSS v4) and scripts (`dev`, `build`, `preview`).
-- **[frontend/vite.config.js](file:///home/spidy/Desktop/projects/safe-search/frontend/vite.config.js)**: Build configs wrapping Vite plugins for bundling React components and loading TailwindCSS.
-
-#### React Scripts & Views (`frontend/src/`)
-- **[frontend/src/index.css](file:///home/spidy/Desktop/projects/safe-search/frontend/src/index.css)**: Primary styling sheet loading Tailwind CSS v4 variables and components.
-- **[frontend/src/main.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/main.jsx)**: Global React entrypoint bootstrapping the virtual DOM.
-- **[frontend/src/App.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/App.jsx)**: Main App layout routing users based on selected roles (analyst vs auditor) and verifying access credentials.
-- **[frontend/src/pages/Dashboard.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/pages/Dashboard.jsx)**: Coordinates view presentation by wrapping the main header and mounting tab components depending on user selection.
-- **[frontend/src/components/CreateAuditorCard.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/CreateAuditorCard.jsx)**: Multi-step card enabling creation of new auditors and modal overlay for copying the private key.
-- **[frontend/src/components/MetricsPage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/MetricsPage.jsx)**: Formats stats metrics, logs, and manages key rotations and deletions.
-- **[frontend/src/components/Navbar.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/Navbar.jsx)**: Standard navigation header for role identification and switching active tabs.
-- **[frontend/src/components/SearchPage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/SearchPage.jsx)**: Implements search logic, showing step-by-step logs, generating query-bound HMAC trapdoors (for analysts) or performing client-side signing (for auditors) using the Web Cryptography API.
-- **[frontend/src/components/StoragePage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/StoragePage.jsx)**: Unmounted view component containing a simulated visualization of AES-256-GCM ciphertexts and HMAC inverted index values.
-- **[frontend/src/components/UploadPage.jsx](file:///home/spidy/Desktop/projects/safe-search/frontend/src/components/UploadPage.jsx)**: Provides input fields (Form or raw JSON) allowing analysts to upload new records.
-
-#### Connectors & Browser Utilities (`frontend/src/services/` & `frontend/src/utils/`)
-- **[frontend/src/services/api.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/api.js)**: Creates Axios HTTP wrapper pointing requests to the Render web service base URL.
-- **[frontend/src/services/auditorService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/auditorService.js)**: Functions to rotate auditor keys and retrieve search audit logs.
-- **[frontend/src/services/externalSearchService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/externalSearchService.js)**: Executes client-side hashing and signs values before posting requests to the external auditor search API.
-- **[frontend/src/services/internalSearchService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/internalSearchService.js)**: Sends analyst search requests to the internal SSE search service.
-- **[frontend/src/services/uploadService.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/services/uploadService.js)**: Handles uploading new documents to the storage endpoint.
-- **[frontend/src/utils/crypto.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/utils/crypto.js)**: Web Cryptography API integration for browser operations: normalizes inputs, generates SHA-256 hash strings, parses private key PEMs, and signs queries using RSA-PSS.
-- **[frontend/src/utils/errorHandler.js](file:///home/spidy/Desktop/projects/safe-search/frontend/src/utils/errorHandler.js)**: Parses API exception structures to return standardized error codes and friendly descriptions.
+0001_initial.py : Initial database migration mapping custom User tables and authentication groups.
+0002_auditor.py : Migration introducing the Auditor table to the database.
+0002_remove_user_is_verified_remove_user_role.py : Migration cleaning redundant validation fields from user properties.
+0003_searchtokenindex_external_token.py : Migration updating SearchTokenIndex model with external verification tokens.
+0004_externalsearchaudit.py : Migration adding the ExternalSearchAudit registry to track auditor lookup history.
+0005_alter_externalsearchaudit_options_and_more.py : Migration applying structural database index and constraint corrections.
+0006_alter_auditor_options_and_more.py : Migration adjusting ordering behavior and schema restrictions for auditors.
+0007_auditor_designation_auditor_email_auditor_phone_and_more.py : Migration expanding the auditor model to include personal contact fields (email, phone, designation).
+API_DOCUMENTATION.md : Detailed REST API documentation detailing endpoints, request formats, response payloads, and schemas.
+AdminLayout.jsx : Main page grid setting up sidebar panel and body wrapper layout.
+App.css : Primary container layout styling sheet.
+App.jsx : Master routing configuration linking UI layouts, user roles, and dashboard views.
+Auditors.jsx : IAM admin tab dealing with external auditor accounts.
+AuthContext.jsx : Context hook providing login status and token session details across all pages.
+CURRENT_STATUS.md : Roadmap status and checklist detailing completed and missing security implementations in the backend application.
+CreateAuditorCard.jsx : Wizard interface enabling registration of new external audit credentials.
+Dashboard.jsx : Dashboard controller page managing views according to analyst or auditor roles.
+DeleteIdentityDialog.jsx : Modal window asking for validation prior to deleting an IAM user profile.
+DisableIdentityDialog.jsx : Modal window confirming status shifts (enabled/disabled) on active identities.
+Dockerfile : Script containerizing the Django backend service using a Python slim image and Gunicorn.
+Documents.jsx : Administrative panel enabling upload and retrieval of raw encrypted items.
+EmptyState.jsx : Fallback display UI shown when search filters find zero matching items.
+IAM.jsx : Security dashboard managing users, roles, and status levels.
+IdentityFilters.jsx : Form components to filter user lists by role, status, or creation bounds.
+IdentityModal.jsx : Wizard handling profile creation and key generation for new users.
+IdentityRow.jsx : Grid entry layout representing individual IAM details.
+IdentitySearch.jsx : Search bar with clean/reset actions for identity filtering.
+IdentityTable.jsx : Main tabular view rendering registered IAM user groups.
+Loader.jsx : Animated loading spinner component.
+LoadingSkeleton.jsx : Animated gray bar panel placeholders mimicking table structures.
+Metrics.jsx : Detailed log viewer showing transaction records and key change timelines.
+MetricsPage.jsx : Dashboard component rendering usage charts, key rotations, and auditor transaction registries.
+Navbar.jsx : Main header navigation bar providing access to pages and user context.
+PageHeader.jsx : Standardized title block with page-specific action buttons.
+PermissionRoute.jsx : Router guard checking user credentials against target feature permissions.
+Profile.jsx : Admin user profile details and self-settings view.
+ProtectedRoute.jsx : Router guard validating active JWT validity before launching component views.
+README.md : High-level project documentation covering SSE/PEKS logic, database schema, environment setup, and local run instructions.
+RoleRoute.jsx : Router guard validating active user role properties.
+Search.jsx : Security searching panel providing document lookup views.
+SearchPage.jsx : Query search console orchestrating HMAC hash derivation and client-side query signatures.
+Settings.jsx : System configurations management board (database seed status, keys, master key status).
+Sidebar.jsx : Side navigation panel for admin dashboard operations.
+StatCard.jsx : Visual summary block presenting metric parameters and percentage shifts.
+StoragePage.jsx : Visual simulator mapping out AES-256 ciphertexts and HMAC inverted index tokens.
+Terminal.jsx : Simulated terminal UI displaying debug outputs and background tasks logs.
+Toast.jsx : Dynamic notification banner alert.
+TopNavbar.jsx : Secondary header navbar supporting admin preferences.
+UploadPage.jsx : Input console supporting record encryption and database uploads.
+Users.jsx : User management workspace rendering the identity components board.
+__init__.py : Package initializer declaring the directory as a Python package module.
+admin.py : Django admin panel registration definitions for models in the application.
+analytics.js : Client API wrapper retrieving analytic metrics.
+api.js : Base Axios setup with request interceptors for attaching JWT authorization headers.
+apps.py : App configuration setup class registering the application within Django.
+asgi.py : ASGI gateway configuration for asynchronous web server bindings.
+auditor.js : Client API wrapper fetching external auditor metrics.
+auditorService.js : Client API wrapper updating key variables and rotating external keys.
+auditor_service.py : Service layer business logic executing auditor registration, updates, deletions, and key rotation.
+auditors.js : Mock data definitions for external auditors used during testing and offline client modes.
+auth.js : Client API wrapper executing logins, password updates, and token refreshes.
+authentication.md : Detailed overview of the authentication and authorization design (JWT for users, RSA signature verification for external auditors).
+constants.py : Shared lists of static configurations, features, roles, or searchable document fields.
+credential_service.py : Service compiling access credentials and preparing RSA certificate details for download.
+crypto.js : Browser Cryptography wrapper applying WebCrypto API routines for SHA-256 and RSA-PSS.
+dashboard.js : Mock data representing dashboard statistics and metrics for visual presentation.
+documents.js : Client API wrapper managing raw documents querying and deletions.
+errorHandler.js : Axios interceptor converting server status codes to clean messages.
+errors.js : Standardized application-side error codes definitions.
+eslint.config.js : Javascript rules syntax checker and styling configuration framework.
+exception_handler.py : Custom middleware exception hook converting system errors into clean API messages.
+externalSearchService.js : Client API wrapper executing client-side RSA signing and querying external routes.
+features.js : Static definitions of distinct system features and options.
+filestructure.md : Comprehensive directory tree and summary mapping for the entire project.
+identities.js : Mock data representing system user identities and roles for the IAM views.
+identity.js : Client API wrapper executing IAM user registration and updates.
+index.css : Root stylesheet loading custom Tailwind variables and global page configurations.
+index.html : Vite HTML wrapper mounting the React application.
+index.js : 디자인 시스템 (Design System) module exporter listing all atomic UI buttons/cards/badges.
+index.jsx : Reusable atomic UI component wrapper implementation for layouts (Button, Card, Input, Table, etc.).
+internalSearchService.js : Client API wrapper querying internal SSE endpoints.
+key_manager.py : Cryptographic operations deriving subkeys from MASTER_KEY using HKDF-SHA256.
+key_service.py : Service managing cryptographic master key parsing, derivation, and validation checks.
+log_export_service.py : Service exporting query metrics and logs into raw formats.
+main.jsx : Virtual DOM root mounting scripts.
+manage.py : Django administrative utility CLI wrapper script.
+models.py : Django ORM model class mapping database tables to Python objects.
+package.json : NPM package definition listing frontend dependencies, run commands, and compiler options.
+pdf_generator.py : Service generating PDF report certificates and audit logs for download.
+peks.py : RSA key pair generator, trapdoor generator, and signature verification utility functions for PEKS.
+permissions.js : Application permissions map allocating features to selected user groups.
+permissions.py : Custom Django REST Framework permissions classes implementing Role-Based Access Control (RBAC).
+render.yaml : Render cloud configuration mapping backend, frontend, and database services for containerized deployment.
+requirements.txt : List of backend dependencies including Django, DRF, simplejwt, cryptography, psycopg2-binary, and whitenoise.
+roles.js : Static roles enum mapping roles to corresponding ID constants.
+routes.js : React Router path layout definitions.
+search.js : Unified client search endpoints wrapper.
+serializers.py : Django REST Framework serializers transforming query models and payloads into/from JSON.
+settings.js : Client API wrapper fetching system health and configuration flags.
+settings.py : Main Django settings module containing database configs, JWT settings, rate throttles, and middleware setup.
+signals.py : Event handler hooks executing actions (like profile syncs) on user model triggers.
+sse.py : Symmetric Searchable Encryption logic utilizing AES-256-GCM and HMAC-SHA256 for index generation.
+status.js : Entity state constants detailing visual indicators mapping.
+summary.md : Architecture and design documentation detailing backend models, cryptographic mechanisms, and frontend layout structures.
+test : Sample PEM RSA private key file used for testing auditor signature verification.
+tests.py : Unit and integration tests validating the accuracy of the application view routes and helper functions.
+uploadService.js : Client API wrapper posting document records.
+url endpoints : Reference document mapping out the available HTTP request endpoints across the backend APIs.
+urls.py : Routing maps linking application-specific sub-paths to their view classes.
+useAuditors.js : Custom hook handling auditor lists and key operations.
+useDashboard.js : Custom hook fetching metrics cards.
+useIdentity.js : Custom hook handling pagination and search state for the IAM grid.
+usePermissions.js : Helper hook validation rules matching active user properties against features.
+utils.py : Reusable helper routines like standardized API success/error formatting and key normalizations.
+views.py : HTTP controllers handling request payloads, checking permissions, and returning JSON responses.
+vite.config.js : Configuration setting up Vite plugins, Tailwind variables integration, and proxy paths.
+wsgi.py : WSGI gateway configuration for standard web server execution.
