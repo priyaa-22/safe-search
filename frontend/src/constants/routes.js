@@ -8,4 +8,10 @@ export const Routes = {
   ADMIN_METRICS: "/admin/metrics",
   ADMIN_SETTINGS: "/admin/settings",
   ADMIN_PROFILE: "/admin/profile",
+  COMPLIANCE: "/compliance",
+  COMPLIANCE_LOGS: "/compliance/audit-logs",
+  COMPLIANCE_AUDITORS: "/compliance/auditor-activity",
+  COMPLIANCE_REPORTS: "/compliance/reports",
+  COMPLIANCE_PROFILE: "/compliance/profile",
+  COMPLIANCE_SETTINGS: "/compliance/settings",
 };

@@ -27,7 +27,7 @@ load_dotenv(dotenv_path=ENV_PATH)
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-dummy-secret-key-for-building-purposes")
 DEBUG = os.getenv("DEBUG") == "True"
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".onrender.com"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver", ".onrender.com", "*"]
 
 # --------------------------------------------------
 # Application Definition
@@ -193,6 +193,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "search": "10/minute",   # Max 10 search requests per minute per IP
+        "compliance": "120/minute",
         "upload": "200/minute",    # Max 5 uploads per minute per IP
         "login": "5/minute",       # Max 5 login requests per minute per IP
     },

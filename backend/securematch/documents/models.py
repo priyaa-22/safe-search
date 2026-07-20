@@ -167,3 +167,83 @@ class ExternalSearchAudit(models.Model):
             f"[{status}] {self.event_type} - Auditor {auditor_id} "
             f"(v{self.key_version}) - {self.created_at}"
         )
+
+
+# ---------------------------------------------------
+# 📊 System & Compliance Governance Audit Log
+# ---------------------------------------------------
+
+class SystemAuditLog(models.Model):
+    SEVERITY_CHOICES = (
+        ("CRITICAL", "Critical"),
+        ("HIGH", "High"),
+        ("MEDIUM", "Medium"),
+        ("LOW", "Low"),
+        ("INFO", "Informational"),
+    )
+
+    STATUS_CHOICES = (
+        ("SUCCESS", "Success"),
+        ("FAILED", "Failed"),
+        ("DENIED", "Denied"),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    user = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="system_audit_logs"
+    )
+    username = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    auditor = models.ForeignKey(
+        Auditor,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="auditor_system_logs"
+    )
+    organization = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    action = models.CharField(max_length=100, db_index=True)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="INFO", db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="SUCCESS", db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, null=True, blank=True)
+    endpoint = models.CharField(max_length=255, null=True, blank=True)
+    response_code = models.IntegerField(default=200)
+    key_version = models.IntegerField(default=1)
+    metadata = models.JSONField(null=True, blank=True)
+    execution_time_ms = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["action"]),
+            models.Index(fields=["severity"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["username"]),
+            models.Index(fields=["organization"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.severity}] {self.action} - {self.username or 'System'} - {self.created_at}"
+
+    @property
+    def success(self) -> bool:
+        return self.status == "SUCCESS"
+
+    @property
+    def total_matches(self) -> int:
+        return (self.metadata or {}).get("total_matches", 0)
+
+    @property
+    def returned_count(self) -> int:
+        return (self.metadata or {}).get("returned_count", 0)
+
+    @property
+    def keyword_hash(self) -> str:
+        return (self.metadata or {}).get("keyword_hash", "-")
+
+

@@ -22,6 +22,16 @@ from .views import (
     HealthCheckView,
 )
 
+from .compliance_views import (
+    ComplianceDashboardView,
+    ComplianceAuditLogsView,
+    ComplianceAuditorActivityView,
+    ComplianceMetricsView,
+    ComplianceReportsView,
+    ComplianceSystemHealthView,
+    ComplianceExportLogsView,
+)
+
 urlpatterns = [
     path("health/", HealthCheckView.as_view()),
     path("upload/", UploadDocumentView.as_view()),
@@ -45,5 +55,15 @@ urlpatterns = [
     path("auditors/<int:id>/", AuditorDetailView.as_view()),
     path("auditors/<int:id>/rotate-key/", AuditorRotateKeyPathView.as_view()),
     path("auditors/<int:id>/credentials/", AuditorCredentialsPathView.as_view()),
+
+    # 🛡️ Compliance Officer Endpoints
+    path("compliance/dashboard/", ComplianceDashboardView.as_view()),
+    path("compliance/audit-logs/", ComplianceAuditLogsView.as_view()),
+    path("compliance/auditor-activity/", ComplianceAuditorActivityView.as_view()),
+    path("compliance/metrics/", ComplianceMetricsView.as_view()),
+    path("compliance/reports/", ComplianceReportsView.as_view()),
+    path("compliance/system-health/", ComplianceSystemHealthView.as_view()),
+    path("compliance/export-logs/", ComplianceExportLogsView.as_view()),
 ]
+
 

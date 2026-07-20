@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import api from "./services/api";
 import Dashboard from "./pages/Dashboard";
 import Toast from "./components/Toast";
@@ -33,6 +33,15 @@ import AdminProfile from "./pages/admin/Profile";
 import AdminDocuments from "./pages/admin/Documents";
 import AdminSearch from "./pages/admin/Search";
 import AdminSettings from "./pages/admin/Settings";
+
+// Compliance Officer Layout & Pages
+import ComplianceLayout from "./layouts/ComplianceLayout";
+import ComplianceDashboard from "./pages/compliance/Dashboard";
+import ComplianceAuditLogsPage from "./pages/compliance/AuditLogs";
+import ComplianceAuditorActivityPage from "./pages/compliance/AuditorActivity";
+import ComplianceReportsPage from "./pages/compliance/Reports";
+import ComplianceProfilePage from "./pages/compliance/Profile";
+import ComplianceSettingsPage from "./pages/compliance/Settings";
 
 export default function App() {
   const { login: authLogin, logout: authLogout, isLoading } = useAuth();
@@ -74,6 +83,7 @@ export default function App() {
     () => sessionStorage.getItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY) || ""
   );
   const [loggingIn, setLoggingIn] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const [internalUsers, setInternalUsers] = useState([]);
   const [selectedInternalUser, setSelectedInternalUser] = useState(null);
@@ -92,19 +102,24 @@ export default function App() {
     }
   };
 
-  const showToast = (message, type = "info") => {
+  const showToast = useCallback((message, type = "info") => {
     setToast({ message, type });
-  };
+  }, []);
 
   const logout = async () => {
-    await authLogout();
-    updateRoleState(null);
-    setSelectedInternalUser(null);
-    setSelectedAuditor(null);
-    setAuditorPrivateKeyInput("");
-    sessionStorage.removeItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY);
-    showToast("Logged out successfully", "info");
-    navigate("/");
+    try {
+      setLoggingOut(true);
+      await authLogout();
+      updateRoleState(null);
+      setSelectedInternalUser(null);
+      setSelectedAuditor(null);
+      setAuditorPrivateKeyInput("");
+      sessionStorage.removeItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY);
+      showToast("Logged out successfully", "info");
+      navigate("/");
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   const fetchAuditors = async () => {
@@ -170,6 +185,38 @@ export default function App() {
     }
   };
 
+  const handleComplianceLogin = async () => {
+    if (!usernameInput.trim() || !passwordInput.trim()) {
+      showToast("Username and password required", "warning");
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const res = await authLogin(usernameInput, passwordInput);
+      if (res.success) {
+        const allowedRoles = [Roles.COMPLIANCE_OFFICER, Roles.ADMINISTRATOR];
+        if (!hasAnyRole(res.user, allowedRoles)) {
+          showToast("Access denied: You do not have Compliance Officer privileges", "error");
+          await authLogout();
+          return;
+        }
+
+        updateRoleState({ type: "compliance" });
+        showToast("Logged in as Compliance Officer", "success");
+        setUsernameInput("");
+        setPasswordInput("");
+        navigate("/compliance");
+      }
+    } catch (err) {
+      console.error(err);
+      const { message } = handleApiError(err);
+      showToast(message || "Invalid username or password", "error");
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
   const handleInternalLogin = async () => {
     try {
       updateRoleState({ type: "internal_select" });
@@ -202,6 +249,14 @@ export default function App() {
         if (!hasAnyRole(res.user, allowedRoles)) {
           showToast("Access denied: This portal is for internal operational teams only", "error");
           await authLogout();
+          return;
+        }
+
+        if (hasRole(res.user, Roles.COMPLIANCE_OFFICER)) {
+          updateRoleState({ type: "compliance" });
+          showToast("Logged in to Compliance Officer Portal", "success");
+          setPasswordInput("");
+          navigate("/compliance");
           return;
         }
 
@@ -311,15 +366,20 @@ export default function App() {
   useEffect(() => {
     if (isUserAuthenticated && authUser) {
       const isPathAdmin = currentPath.startsWith("/admin");
+      const isPathCompliance = currentPath.startsWith("/compliance");
       const isAdmin = hasRole(authUser, Roles.ADMINISTRATOR);
-
-      console.log(`[TEMP][App.jsx] Path checking: isPathAdmin=${isPathAdmin}, isAdmin=${isAdmin}, userRole=${getRoleFromUser(authUser)}`);
+      const isCompliance = hasRole(authUser, Roles.COMPLIANCE_OFFICER);
 
       if (isPathAdmin && !isAdmin) {
         showToast("Access denied: You do not have Super Administrator privileges", "error");
         logout();
-      } else if (!isPathAdmin && isAdmin) {
+      } else if (isPathCompliance && !(isCompliance || isAdmin)) {
+        showToast("Access denied: You do not have Compliance Officer privileges", "error");
+        logout();
+      } else if (!isPathAdmin && !isPathCompliance && isAdmin) {
         navigate("/admin");
+      } else if (!isPathAdmin && !isPathCompliance && isCompliance) {
+        navigate("/compliance");
       }
     }
   }, [isUserAuthenticated, authUser, currentPath]);
@@ -337,9 +397,11 @@ export default function App() {
   // ===============================
   const renderAuthScreens = () => {
     const isAdminPath = currentPath.startsWith("/admin");
+    const isCompliancePath = currentPath.startsWith("/compliance");
     const showAdminLogin = isAdminPath || (role && role.type === "admin_login");
+    const showComplianceLogin = isCompliancePath || (role && role.type === "compliance_login");
 
-    // 2. Admin Login Form (checks both route and role state)
+    // Admin Login Form
     if (showAdminLogin) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
@@ -385,7 +447,7 @@ export default function App() {
                 }
                 updateRoleState(null);
               }}
-              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition font-medium"
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition font-medium cursor-pointer"
             >
               ← Back
             </Button>
@@ -395,7 +457,63 @@ export default function App() {
       );
     }
 
-    // 1. Entry Screen (3-Portal Layout)
+    // Compliance Officer Login Form
+    if (showComplianceLogin) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12 font-sans">
+          <ContentCard className="w-full max-w-md p-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Compliance Officer Login</h2>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Provide your authorized Compliance Officer credentials for read-only audit monitoring.</p>
+            <div className="space-y-4">
+              <InputGroup>
+                <FieldLabel>Username</FieldLabel>
+                <TextInput
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  placeholder="Enter compliance username"
+                />
+              </InputGroup>
+              <InputGroup>
+                <FieldLabel>Password</FieldLabel>
+                <PasswordInput
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="Enter compliance password"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleComplianceLogin();
+                  }}
+                />
+              </InputGroup>
+              <Button
+                variant="primary"
+                onClick={handleComplianceLogin}
+                loading={loggingIn}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 cursor-pointer"
+              >
+                {loggingIn ? "Logging in..." : "Login to Compliance Portal"}
+              </Button>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setUsernameInput("");
+                setPasswordInput("");
+                if (currentPath.startsWith("/compliance")) {
+                  navigate("/");
+                }
+                updateRoleState(null);
+              }}
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition font-medium cursor-pointer"
+            >
+              ← Back
+            </Button>
+          </ContentCard>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // 1. Entry Screen (4-Portal Grid Layout)
     if (!role) {
       return (
         <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 py-12 relative font-sans">
@@ -409,23 +527,23 @@ export default function App() {
             <p className="text-gray-500 max-w-md mx-auto text-sm">AES-256 Encryption • HMAC Trapdoors • SSE/PEKS Protocol</p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl w-full">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl w-full">
             {/* PORTAL 1: SUPER ADMINISTRATOR */}
             <ContentCard className="flex flex-col justify-between group hover:border-blue-500/50 transition">
               <div>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">Super Administrator</h2>
                 <p className="text-gray-550 text-sm mb-5">Complete administrative access to SecureMatch.</p>
                 <ul className="text-sm space-y-3 mb-6 text-gray-600">
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>User Management</li>
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-655"></span>Auditor Management</li>
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>System Metrics</li>
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>Full Administrative Access</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>User Management</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Auditor Management</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>System Metrics</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Full Administrative Access</li>
                 </ul>
               </div>
               <Button
                 variant="primary"
                 onClick={() => updateRoleState({ type: "admin_login" })}
-                className="w-full py-2.5"
+                className="w-full py-2.5 cursor-pointer"
               >
                 Continue to Admin Portal
               </Button>
@@ -437,22 +555,43 @@ export default function App() {
                 <h2 className="text-xl font-bold text-gray-900 mb-2">Internal Portal</h2>
                 <p className="text-gray-550 text-sm mb-5">Secure operational workspace for internal teams.</p>
                 <ul className="text-sm space-y-3 mb-6 text-gray-600">
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>Upload encrypted documents</li>
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>Internal encrypted search (SSE)</li>
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>View encrypted storage</li>
-                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-650"></span>Access internal metrics</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Upload encrypted documents</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Internal encrypted search (SSE)</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>View encrypted storage</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>Access internal metrics</li>
                 </ul>
               </div>
               <Button
                 variant="primary"
                 onClick={() => updateRoleState({ type: "internal_login" })}
-                className="w-full py-2.5"
+                className="w-full py-2.5 cursor-pointer"
               >
                 Continue to Internal Portal
               </Button>
             </ContentCard>
 
-            {/* PORTAL 3: EXTERNAL AUDITOR PORTAL */}
+            {/* PORTAL 3: COMPLIANCE OFFICER */}
+            <ContentCard className="flex flex-col justify-between group hover:border-emerald-500/50 transition">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Compliance Officer</h2>
+                <p className="text-gray-550 text-sm mb-5">Read-only audit monitoring & governance portal.</p>
+                <ul className="text-sm space-y-3 mb-6 text-gray-600">
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>View Audit Logs</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>Security Analytics</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>Compliance Reports</li>
+                  <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>Export Audit Trails</li>
+                </ul>
+              </div>
+              <Button
+                variant="primary"
+                onClick={() => updateRoleState({ type: "compliance_login" })}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 cursor-pointer"
+              >
+                Continue to Compliance Portal
+              </Button>
+            </ContentCard>
+
+            {/* PORTAL 4: EXTERNAL AUDITOR PORTAL */}
             <ContentCard className="flex flex-col justify-between group hover:border-emerald-500/50 transition">
               <div>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">External Auditor Portal</h2>
@@ -466,21 +605,21 @@ export default function App() {
               <Button
                 variant="secondary"
                 onClick={() => updateRoleState({ type: "external_login" })}
-                className="w-full py-2.5"
+                className="w-full py-2.5 cursor-pointer"
               >
                 Continue to Auditor Portal
               </Button>
             </ContentCard>
           </div>
 
-          <p className="text-xs text-gray-400 mt-10 text-center max-w-xl font-mono">Role-Based Access Control • SSE • PEKS</p>
+          <p className="text-xs text-gray-400 mt-10 text-center max-w-xl font-mono">Role-Based Access Control • SSE • PEKS • Audit Governance</p>
 
           {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         </div>
       );
     }
 
-    // 3. Internal Login Form
+    // Internal Login Form
     if (role.type === "internal_login") {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
@@ -512,7 +651,7 @@ export default function App() {
       );
     }
 
-    // 4. Internal Select Screen
+    // Internal Select Screen
     if (role.type === "internal_select") {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
@@ -589,7 +728,7 @@ export default function App() {
       );
     }
 
-    // 5. External Login Form
+    // External Login Form
     if (role.type === "external_login") {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
@@ -621,7 +760,7 @@ export default function App() {
       );
     }
 
-    // 6. External Select Screen
+    // External Select Screen
     if (role.type === "external_select") {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
@@ -733,8 +872,17 @@ export default function App() {
     );
   };
 
-  const isDashboardRole = role && (role.type === "internal" || role.type === "external" || role.type === "admin");
+  const isDashboardRole = role && (role.type === "internal" || role.type === "external" || role.type === "admin" || role.type === "compliance");
   const isAdminRoute = currentPath.startsWith("/admin");
+  const isComplianceRoute = currentPath.startsWith("/compliance");
+
+  if (loggingOut) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6 py-12">
+        <Spinner size="lg" text="Logging out..." />
+      </div>
+    );
+  }
 
   let adminPageContent = null;
   if (currentPath === "/admin") {
@@ -757,6 +905,23 @@ export default function App() {
     adminPageContent = <AdminDashboard navigate={navigate} />;
   }
 
+  let compliancePageContent = null;
+  if (currentPath === "/compliance") {
+    compliancePageContent = <ComplianceDashboard navigate={navigate} showToast={showToast} />;
+  } else if (currentPath === "/compliance/audit-logs") {
+    compliancePageContent = <ComplianceAuditLogsPage showToast={showToast} />;
+  } else if (currentPath === "/compliance/auditor-activity") {
+    compliancePageContent = <ComplianceAuditorActivityPage showToast={showToast} />;
+  } else if (currentPath === "/compliance/reports") {
+    compliancePageContent = <ComplianceReportsPage showToast={showToast} />;
+  } else if (currentPath === "/compliance/profile") {
+    compliancePageContent = <ComplianceProfilePage />;
+  } else if (currentPath === "/compliance/settings") {
+    compliancePageContent = <ComplianceSettingsPage />;
+  } else {
+    compliancePageContent = <ComplianceDashboard navigate={navigate} showToast={showToast} />;
+  }
+
   return (
     <ProtectedRoute fallback={renderAuthScreens()}>
       {isAdminRoute ? (
@@ -769,6 +934,18 @@ export default function App() {
           >
             {adminPageContent}
           </AdminLayout>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </RoleRoute>
+      ) : isComplianceRoute ? (
+        <RoleRoute allowedRoles={[Roles.COMPLIANCE_OFFICER, Roles.ADMINISTRATOR]} fallback={renderAuthScreens()}>
+          <ComplianceLayout
+            currentPath={currentPath}
+            navigate={navigate}
+            user={authUser}
+            logout={logout}
+          >
+            {compliancePageContent}
+          </ComplianceLayout>
           {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         </RoleRoute>
       ) : isDashboardRole ? (

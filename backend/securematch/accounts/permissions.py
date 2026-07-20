@@ -62,3 +62,14 @@ class IsInternalUser(BasePermission):
     """
     def has_permission(self, request, view) -> bool:
         return bool(request.user and is_internal_user(request.user))
+
+
+class IsComplianceOfficerOrAdmin(BasePermission):
+    """
+    Allows Compliance Officer and Administrator.
+    """
+    def has_permission(self, request, view) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return bool(is_administrator(request.user) or has_role(request.user, Roles.COMPLIANCE_OFFICER))
+

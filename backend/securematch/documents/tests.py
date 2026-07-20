@@ -87,9 +87,9 @@ class RBACTests(TestCase):
         url = "/api/search/internal/"
         self.assert_allowed(self.super_admin, "post", url)
         self.assert_allowed(self.internal_analyst, "post", url)
-        self.assert_allowed(self.compliance_officer, "post", url)
         self.assert_allowed(self.read_only_analyst, "post", url)
         
+        self.assert_forbidden(self.compliance_officer, "post", url)
         self.assert_forbidden(self.external_auditor, "post", url)
 
     # 3. External Search

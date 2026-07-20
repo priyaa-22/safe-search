@@ -124,7 +124,7 @@ class UploadDocumentView(APIView):
 # ---------------------------------------------------
 
 class InternalSearchView(APIView):
-    permission_classes = [IsAuthenticated, IsInternalUser | IsReadOnlyAnalyst]
+    permission_classes = [IsAuthenticated, IsSuperAdministrator | IsInternalAnalyst | IsReadOnlyAnalyst]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "search"
 

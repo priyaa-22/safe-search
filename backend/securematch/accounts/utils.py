@@ -58,3 +58,11 @@ def is_external_auditor(user) -> bool:
     Checks if the user has an external auditor role.
     """
     return has_any_role(user, Roles.auditor_roles())
+
+
+def is_compliance_officer(user) -> bool:
+    """
+    Checks if the user has the Compliance Officer role.
+    """
+    return has_role(user, Roles.COMPLIANCE_OFFICER)
+
