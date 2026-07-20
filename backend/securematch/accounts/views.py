@@ -120,6 +120,35 @@ class CurrentUserView(APIView):
         return Response(success_response(data=serializer.data), status=status.HTTP_200_OK)
 
 
+class InternalIdentityDirectoryView(APIView):
+    """
+    GET /api/auth/internal-identities/
+    Returns a public directory of active internal identities for portal selection.
+    """
+    permission_classes = ()
+    authentication_classes = ()
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+    def get(self, request, *args, **kwargs):
+        users = (
+            User.objects.filter(is_active=True, groups__name__in=Roles.internal_roles())
+            .distinct()
+            .order_by("first_name", "last_name", "username")
+        )
+
+        data = []
+        for user in users:
+            data.append({
+                "id": user.id,
+                "username": user.username,
+                "fullName": f"{user.first_name} {user.last_name}".strip() or user.username,
+                "role": get_primary_role(user),
+            })
+
+        return Response(success_response(data=data), status=status.HTTP_200_OK)
+
+
 class ChangePasswordView(APIView):
     """
     POST /api/auth/change-password/

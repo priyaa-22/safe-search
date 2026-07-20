@@ -38,6 +38,7 @@ class RBACTests(TestCase):
         # Create a test auditor for auditor-specific endpoints
         self.test_auditor = Auditor.objects.create(
             name="HDFC",
+            organization_code="HDFC",
             public_key="test-public-key",
             key_version=1
         )
@@ -139,6 +140,7 @@ class RBACTests(TestCase):
         # Re-create auditor for subsequent tests
         self.test_auditor = Auditor.objects.create(
             name="HDFC",
+            organization_code="HDFC_2",
             public_key="test-public-key",
             key_version=1
         )
@@ -236,6 +238,7 @@ class CredentialTests(TestCase):
         # Setup auditor
         auditor = Auditor.objects.create(
             name="Test Auditor PDF",
+            organization_code="TEST_AUDITOR_PDF",
             public_key="test-public-key",
             key_version=2
         )
@@ -294,6 +297,7 @@ class AuditorProfileManagementTests(TestCase):
         # Create initial test auditors
         self.auditor = Auditor.objects.create(
             name="SBI Auditor",
+            organization_code="SBI_AUDITOR",
             public_key="sbi-public-key-data",
             email="sbi@auditor.com",
             phone="+919876543210",
@@ -302,6 +306,7 @@ class AuditorProfileManagementTests(TestCase):
         )
         self.other_auditor = Auditor.objects.create(
             name="ICICI Auditor",
+            organization_code="ICICI_AUDITOR",
             public_key="icici-public-key-data",
             email="icici@auditor.com",
             phone="+919876543211",
@@ -481,6 +486,7 @@ class RESTfulAuditorTests(TestCase):
         
         self.auditor = Auditor.objects.create(
             name="SBI REST Auditor",
+            organization_code="SBI_REST_AUDITOR",
             email="sbi.rest@auditor.com",
             phone="+919876543210",
             designation="Senior REST Auditor",
@@ -534,11 +540,41 @@ class RESTfulAuditorTests(TestCase):
         self.assertIn("temporary_password", response.data["data"])
         self.assertIn("username", response.data["data"])
         self.assertEqual(response.data["data"]["name"], "HDFC REST Auditor")
+        self.assertEqual(response.data["data"]["organization_code"], "HDFC_SPECIALIST")
         
         # Verify user account was created in DB
         created_user = User.objects.get(username=response.data["data"]["username"])
         self.assertTrue(created_user.groups.filter(name=Roles.EXTERNAL_AUDITOR).exists())
         self.assertTrue(created_user.is_active)
+
+    def test_create_auditor_restful_allows_blank_optional_fields(self):
+        url = "/api/auditors/"
+        self.client.force_authenticate(user=self.admin)
+
+        payload = {
+            "name": "Blank Optional Auditor",
+            "email": "",
+            "phone": "",
+            "designation": "",
+            "status": "ACTIVE",
+        }
+
+        response = self.client.post(url, payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        auditor = Auditor.objects.get(id=response.data["data"]["auditor_id"])
+        self.assertIsNone(auditor.email)
+        self.assertIsNone(auditor.phone)
+        self.assertIsNone(auditor.designation)
+        self.assertEqual(auditor.organization_code, "BLANK_OPTIONAL_AUDITOR")
+
+    def test_create_auditor_restful_rejects_duplicate_blank_name(self):
+        url = "/api/auditors/"
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(url, {"name": "   ", "status": "ACTIVE"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data["error"]["details"])
 
     def test_get_auditor_detail_restful(self):
         url = f"/api/auditors/{self.auditor.id}/"
@@ -595,5 +631,3 @@ class RESTfulAuditorTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response['Content-Type'], 'application/pdf')
-
-

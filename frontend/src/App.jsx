@@ -3,7 +3,6 @@ import api from "./services/api";
 import Dashboard from "./pages/Dashboard";
 import Toast from "./components/Toast";
 import { Spinner } from "./components/Loader";
-import { sha256Hex, signHashHex, verifySignatureHex } from "./utils/crypto";
 import { handleApiError } from "./utils/errorHandler";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -17,6 +16,7 @@ import {
   Button,
   TextInput,
   PasswordInput,
+  Textarea,
   FieldLabel,
   InputGroup,
   ContentCard,
@@ -36,6 +36,7 @@ import AdminSettings from "./pages/admin/Settings";
 
 export default function App() {
   const { login: authLogin, logout: authLogout, isLoading } = useAuth();
+  const AUDITOR_PRIVATE_KEY_STORAGE_KEY = "externalAuditorPrivateKey";
 
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
@@ -69,11 +70,16 @@ export default function App() {
 
   const [usernameInput, setUsernameInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
+  const [auditorPrivateKeyInput, setAuditorPrivateKeyInput] = useState(
+    () => sessionStorage.getItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY) || ""
+  );
   const [loggingIn, setLoggingIn] = useState(false);
 
+  const [internalUsers, setInternalUsers] = useState([]);
+  const [selectedInternalUser, setSelectedInternalUser] = useState(null);
+  const [loadingInternalUsers, setLoadingInternalUsers] = useState(false);
   const [externalAuditors, setExternalAuditors] = useState([]);
   const [selectedAuditor, setSelectedAuditor] = useState(null);
-  const [privateKeyInput, setPrivateKeyInput] = useState("");
   const [loadingAuditors, setLoadingAuditors] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -93,8 +99,10 @@ export default function App() {
   const logout = async () => {
     await authLogout();
     updateRoleState(null);
+    setSelectedInternalUser(null);
     setSelectedAuditor(null);
-    setPrivateKeyInput("");
+    setAuditorPrivateKeyInput("");
+    sessionStorage.removeItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY);
     showToast("Logged out successfully", "info");
     navigate("/");
   };
@@ -102,9 +110,8 @@ export default function App() {
   const fetchAuditors = async () => {
     try {
       setLoadingAuditors(true);
-      const res = await api.get("/api/metrics/internal/");
-      const data = res.data?.data || {};
-      const auditors = data.auditors || [];
+      const res = await api.get("/api/auditors/");
+      const auditors = Array.isArray(res.data?.data) ? res.data.data : [];
       setExternalAuditors(auditors);
       return auditors;
     } catch (err) {
@@ -113,6 +120,22 @@ export default function App() {
       return [];
     } finally {
       setLoadingAuditors(false);
+    }
+  };
+
+  const fetchInternalUsers = async () => {
+    try {
+      setLoadingInternalUsers(true);
+      const res = await api.get("/api/auth/internal-identities/");
+      const users = Array.isArray(res.data?.data) ? res.data.data : [];
+      setInternalUsers(users);
+      return users;
+    } catch (err) {
+      console.error("Failed to fetch internal identities", err);
+      showToast("Failed to retrieve internal identity directory", "error");
+      return [];
+    } finally {
+      setLoadingInternalUsers(false);
     }
   };
 
@@ -148,14 +171,32 @@ export default function App() {
   };
 
   const handleInternalLogin = async () => {
-    if (!usernameInput.trim() || !passwordInput.trim()) {
-      showToast("Username and password required", "warning");
+    try {
+      updateRoleState({ type: "internal_select" });
+      setSelectedInternalUser(null);
+      setPasswordInput("");
+      await fetchInternalUsers();
+    } catch (err) {
+      console.error(err);
+      const { message } = handleApiError(err);
+      showToast(message || "Failed to load internal identity directory", "error");
+    }
+  };
+
+  const handleInternalContinue = async () => {
+    if (!selectedInternalUser) {
+      showToast("Select an internal identity", "warning");
+      return;
+    }
+
+    if (!passwordInput.trim()) {
+      showToast("Password required", "warning");
       return;
     }
 
     try {
       setLoggingIn(true);
-      const res = await authLogin(usernameInput, passwordInput);
+      const res = await authLogin(selectedInternalUser.username, passwordInput);
       if (res.success) {
         const allowedRoles = [Roles.INTERNAL_ANALYST, Roles.COMPLIANCE_OFFICER, Roles.READ_ONLY_ANALYST];
         if (!hasAnyRole(res.user, allowedRoles)) {
@@ -164,126 +205,89 @@ export default function App() {
           return;
         }
 
-        updateRoleState({ type: "internal" });
+        updateRoleState({
+          type: "internal",
+          userDirectoryEntry: selectedInternalUser,
+        });
         showToast(`Logged in to Internal Portal as ${getRoleFromUser(res.user)}`, "success");
-        setUsernameInput("");
         setPasswordInput("");
       }
     } catch (err) {
       console.error(err);
       const { message } = handleApiError(err);
-      showToast(message || "Invalid username or password", "error");
+      showToast(message || "Invalid password", "error");
     } finally {
       setLoggingIn(false);
     }
   };
 
   const handleExternalLogin = async () => {
-    if (!usernameInput.trim() || !passwordInput.trim()) {
-      showToast("Username and password required", "warning");
-      return;
-    }
-
     try {
-      setLoggingIn(true);
-      const res = await authLogin(usernameInput, passwordInput);
-      if (res.success) {
-        if (!hasRole(res.user, Roles.EXTERNAL_AUDITOR)) {
-          showToast("Access denied: Please use the External Auditor portal", "error");
-          await authLogout();
-          return;
-        }
-
-        updateRoleState({ type: "external_select" });
-        showToast("Authentication successful", "success");
-        setUsernameInput("");
-        setPasswordInput("");
-        await fetchAuditors();
-      }
+      updateRoleState({ type: "external_select" });
+      setSelectedAuditor(null);
+      setPasswordInput("");
+      setAuditorPrivateKeyInput("");
+      sessionStorage.removeItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY);
+      await fetchAuditors();
     } catch (err) {
       console.error(err);
       const { message } = handleApiError(err);
-      showToast(message || "Invalid username or password", "error");
-    } finally {
-      setLoggingIn(false);
+      showToast(message || "Failed to load auditor directory", "error");
     }
   };
 
   const handleExternalContinue = async () => {
-    if (!privateKeyInput.trim()) {
-      showToast("Auditor private key required", "warning");
-      return;
-    }
-
     if (!selectedAuditor) {
       showToast("Select an auditor identity", "warning");
       return;
     }
 
+    if (!passwordInput.trim()) {
+      showToast("Password required", "warning");
+      return;
+    }
+
+    if (!auditorPrivateKeyInput.trim()) {
+      showToast("Private key required", "warning");
+      return;
+    }
+
     try {
-      const probe = `auditor-probe:${selectedAuditor.auditor_id}`;
-      const probeHash = await sha256Hex(probe);
-      const signature = await signHashHex(probeHash, privateKeyInput);
-      let verifiedAuditor = selectedAuditor;
+      setLoggingIn(true);
+      const username = selectedAuditor.username;
 
-      try {
-        const res = await api.post("/api/auditor/verify/", {
-          auditor_id: selectedAuditor.auditor_id,
-          signature,
-        });
-        verifiedAuditor = res.data?.data || selectedAuditor;
-      } catch (err) {
-        const status = err.response?.status;
-
-        if (status !== 404) {
-          throw err;
-        }
-
-        const auditors = await fetchAuditors();
-        const freshAuditor = auditors.find(
-          (auditor) => auditor.auditor_id === selectedAuditor.auditor_id
-        );
-
-        if (!freshAuditor) {
-          showToast("Selected auditor no longer exists", "error");
-          return;
-        }
-
-        if (!freshAuditor.public_key) {
-          showToast(
-            "Backend does not support /api/auditor/verify/ and auditor public key is unavailable",
-            "error"
-          );
-          return;
-        }
-
-        const isValid = await verifySignatureHex(
-          probeHash,
-          signature,
-          freshAuditor.public_key
-        );
-
-        if (!isValid) {
-          showToast("Private key does not match selected auditor", "error");
-          return;
-        }
-
-        verifiedAuditor = freshAuditor;
+      if (!username) {
+        showToast("Selected auditor is missing a login username", "error");
+        return;
       }
 
-      setSelectedAuditor(verifiedAuditor);
+      const res = await authLogin(username, passwordInput);
+      if (!res.success) {
+        showToast("Login failed", "error");
+        return;
+      }
+
+      if (!hasRole(res.user, Roles.EXTERNAL_AUDITOR)) {
+        showToast("Access denied: Please use the External Auditor portal", "error");
+        await authLogout();
+        return;
+      }
 
       updateRoleState({
         type: "external",
-        auditor: verifiedAuditor,
-        privateKey: privateKeyInput,
+        auditor: selectedAuditor,
+        privateKeyPresent: true,
       });
+      sessionStorage.setItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY, auditorPrivateKeyInput.trim());
 
-      showToast(`Logged in as ${verifiedAuditor.name}`, "success");
+      showToast(`Logged in as ${selectedAuditor.name}`, "success");
+      setPasswordInput("");
     } catch (err) {
       console.error(err);
       const { message } = handleApiError(err);
-      showToast(message || "Invalid private key format or mismatched credentials", "error");
+      showToast(message || "Invalid password", "error");
+    } finally {
+      setLoggingIn(false);
     }
   };
 
@@ -291,8 +295,10 @@ export default function App() {
   useEffect(() => {
     const handleAuthLogout = () => {
       updateRoleState(null);
+      setSelectedInternalUser(null);
       setSelectedAuditor(null);
-      setPrivateKeyInput("");
+      setAuditorPrivateKeyInput("");
+      sessionStorage.removeItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY);
     };
     window.addEventListener("auth-logout", handleAuthLogout);
     return () => {
@@ -480,40 +486,19 @@ export default function App() {
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
           <ContentCard className="w-full max-w-md p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Internal Analyst Login</h2>
-            <p className="text-xs text-gray-500 mb-6 font-medium">Provide your username and password credentials to access the operational portal.</p>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Open the internal directory, choose your identity, then enter your password.</p>
             <div className="space-y-4">
-              <InputGroup>
-                <FieldLabel>Username</FieldLabel>
-                <TextInput
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  placeholder="Enter username"
-                />
-              </InputGroup>
-              <InputGroup>
-                <FieldLabel>Password</FieldLabel>
-                <PasswordInput
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  placeholder="Enter password"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleInternalLogin();
-                  }}
-                />
-              </InputGroup>
               <Button
                 variant="primary"
                 onClick={handleInternalLogin}
-                loading={loggingIn}
                 className="w-full py-3"
               >
-                {loggingIn ? "Logging in..." : "Login"}
+                Open Internal Directory
               </Button>
             </div>
             <Button
               variant="ghost"
               onClick={() => {
-                setUsernameInput("");
                 setPasswordInput("");
                 updateRoleState(null);
               }}
@@ -527,46 +512,102 @@ export default function App() {
       );
     }
 
-    // 4. External Login Form
+    // 4. Internal Select Screen
+    if (role.type === "internal_select") {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+          <ContentCard className="w-full max-w-md p-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Internal Identity</h2>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Choose your registered internal identity and provide the matching password.</p>
+
+            {loadingInternalUsers ? (
+              <div className="py-8"><Spinner text="Loading internal directory..." /></div>
+            ) : internalUsers.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-6 border border-dashed rounded-xl mb-6">No internal identities available.</p>
+            ) : (
+              <div className="space-y-2 mb-6">
+                {internalUsers.map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => setSelectedInternalUser(user)}
+                    className={`w-full border text-left px-4 py-3 rounded-xl transition text-sm flex justify-between items-center cursor-pointer ${
+                      selectedInternalUser?.id === user.id
+                        ? "bg-gray-100 border-black text-black font-semibold"
+                        : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span>
+                      <span className="block font-semibold">{user.fullName}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{user.role}</span>
+                    </span>
+                    <span className="text-[10px] bg-gray-150 border px-2 py-0.5 rounded text-gray-500 font-mono">
+                      @{user.username}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedInternalUser && (
+              <div className="space-y-4 animate-[fadeIn_0.2s_ease-out]">
+                <InputGroup>
+                  <FieldLabel>Password For {selectedInternalUser.fullName}</FieldLabel>
+                  <PasswordInput
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter internal account password"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleInternalContinue();
+                    }}
+                  />
+                </InputGroup>
+                <Button
+                  variant="primary"
+                  onClick={handleInternalContinue}
+                  loading={loggingIn}
+                  className="w-full py-3"
+                >
+                  {loggingIn ? "Logging in..." : "Enter Internal Portal"}
+                </Button>
+              </div>
+            )}
+
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSelectedInternalUser(null);
+                setPasswordInput("");
+                authLogout().then(() => updateRoleState(null));
+              }}
+              className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition font-medium"
+            >
+              ← Logout
+            </Button>
+          </ContentCard>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // 5. External Login Form
     if (role.type === "external_login") {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
           <ContentCard className="w-full max-w-md p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">External Auditor Login</h2>
-            <p className="text-xs text-gray-500 mb-6 font-medium">Provide your credentials to authenticate and select your auditor identity.</p>
+            <p className="text-xs text-gray-500 mb-6 font-medium">Open the auditor directory, choose your identity, then enter your password.</p>
             <div className="space-y-4">
-              <InputGroup>
-                <FieldLabel>Username</FieldLabel>
-                <TextInput
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  placeholder="Enter username"
-                />
-              </InputGroup>
-              <InputGroup>
-                <FieldLabel>Password</FieldLabel>
-                <PasswordInput
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  placeholder="Enter password"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleExternalLogin();
-                  }}
-                />
-              </InputGroup>
               <Button
                 variant="primary"
                 onClick={handleExternalLogin}
-                loading={loggingIn}
                 className="w-full py-3"
               >
-                {loggingIn ? "Logging in..." : "Login"}
+                Open Auditor Directory
               </Button>
             </div>
             <Button
               variant="ghost"
               onClick={() => {
-                setUsernameInput("");
                 setPasswordInput("");
                 updateRoleState(null);
               }}
@@ -580,7 +621,7 @@ export default function App() {
       );
     }
 
-    // 5. External Select Screen
+    // 6. External Select Screen
     if (role.type === "external_select") {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
@@ -604,7 +645,12 @@ export default function App() {
                         : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
                     }`}
                   >
-                    <span>{auditor.name}</span>
+                    <span>
+                      <span className="block font-semibold">{auditor.name}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        {auditor.organization_name || "External Auditor"}
+                      </span>
+                    </span>
                     <span className="text-[10px] bg-gray-150 border px-2 py-0.5 rounded text-gray-500 uppercase font-mono">
                       Ver {auditor.active_key_version}
                     </span>
@@ -616,20 +662,35 @@ export default function App() {
             {selectedAuditor && (
               <div className="space-y-4 animate-[fadeIn_0.2s_ease-out]">
                 <InputGroup>
-                  <FieldLabel>Auditor Private Key</FieldLabel>
-                  <textarea
-                    value={privateKeyInput}
-                    onChange={(e) => setPrivateKeyInput(e.target.value)}
-                    className="w-full border border-gray-250 bg-white rounded-xl p-3 text-xs font-mono h-28 focus:border-blue-500 focus:outline-none text-gray-800 custom-scrollbar"
-                    placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
+                  <FieldLabel>Password For {selectedAuditor.name}</FieldLabel>
+                  <PasswordInput
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter auditor password"
                   />
+                </InputGroup>
+                <InputGroup>
+                  <FieldLabel>Auditor Private Key</FieldLabel>
+                  <Textarea
+                    value={auditorPrivateKeyInput}
+                    onChange={(e) => setAuditorPrivateKeyInput(e.target.value)}
+                    placeholder="Paste the full PEM private key, including BEGIN/END markers"
+                    className="min-h-40"
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") handleExternalContinue();
+                    }}
+                  />
+                  <p className="text-xs text-gray-500">
+                    This key is stored only for the current browser session and is cleared on logout.
+                  </p>
                 </InputGroup>
                 <Button
                   variant="primary"
                   onClick={handleExternalContinue}
+                  loading={loggingIn}
                   className="w-full py-3"
                 >
-                  Continue
+                  {loggingIn ? "Logging in..." : "Enter Auditor Portal"}
                 </Button>
               </div>
             )}
@@ -638,7 +699,9 @@ export default function App() {
               variant="ghost"
               onClick={() => {
                 setSelectedAuditor(null);
-                setPrivateKeyInput("");
+                setPasswordInput("");
+                setAuditorPrivateKeyInput("");
+                sessionStorage.removeItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY);
                 authLogout().then(() => updateRoleState(null));
               }}
               className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-800 transition font-medium"
@@ -713,7 +776,7 @@ export default function App() {
           <Dashboard
             role={role.type}
             auditor={role.auditor}
-            privateKey={role.privateKey}
+            privateKey={sessionStorage.getItem(AUDITOR_PRIVATE_KEY_STORAGE_KEY) || ""}
             logout={logout}
             showToast={showToast}
           />

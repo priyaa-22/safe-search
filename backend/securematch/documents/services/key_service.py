@@ -1,5 +1,6 @@
 import logging
 from crypto_engine.peks import generate_rsa_keypair, get_public_key_fingerprint
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ def rotate_auditor_keys(auditor):
     # Rotate attributes
     auditor.public_key = public_key
     auditor.key_version += 1
-    auditor.save()
+    auditor.last_rotation = timezone.now()
+    auditor.save(update_fields=["public_key", "key_version", "last_rotation", "updated_at"])
 
     # Log archival of previous key
     logger.info(

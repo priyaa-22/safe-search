@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 # ---------------------------------------------------
@@ -59,6 +60,10 @@ class Auditor(models.Model):
     )
 
     name = models.CharField(max_length=255)
+    organization_name = models.CharField(max_length=255)
+    organization_code = models.CharField(max_length=64)
+    username = models.CharField(max_length=255, null=True, blank=True)
+    temp_password = models.CharField(max_length=255, null=True, blank=True)
     email = models.EmailField(unique=True, null=True, blank=True)
     phone = models.CharField(max_length=20, null=True, blank=True)
     designation = models.CharField(max_length=255, null=True, blank=True)
@@ -71,6 +76,7 @@ class Auditor(models.Model):
 
     # 🔁 Key Rotation Support
     key_version = models.IntegerField(default=1)
+    last_rotation = models.DateTimeField(default=timezone.now)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

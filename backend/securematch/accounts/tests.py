@@ -67,6 +67,61 @@ class AccountsRBACTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["role"], Roles.ADMINISTRATOR)
 
+    def test_internal_identity_directory_lists_only_active_internal_users(self):
+        analyst = User.objects.create_user(
+            username="analyst_user",
+            password="password123",
+            first_name="Asha",
+            last_name="Patel",
+        )
+        analyst.groups.add(self.internal_analyst_group)
+
+        compliance = User.objects.create_user(
+            username="compliance_user",
+            password="password123",
+            first_name="Mira",
+            last_name="Rao",
+        )
+        compliance.groups.add(self.compliance_officer_group)
+
+        disabled_user = User.objects.create_user(
+            username="disabled_user",
+            password="password123",
+            first_name="Disabled",
+            is_active=False,
+        )
+        disabled_user.groups.add(self.read_only_analyst_group)
+
+        auditor = User.objects.create_user(username="auditor_user", password="password123")
+        auditor.groups.add(self.external_auditor_group)
+
+        admin = User.objects.create_superuser(username="admin_hidden", password="password123", email="admin_hidden@example.com")
+
+        response = self.client.get("/api/auth/internal-identities/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["data"],
+            [
+                {
+                    "id": analyst.id,
+                    "username": "analyst_user",
+                    "fullName": "Asha Patel",
+                    "role": Roles.INTERNAL_ANALYST,
+                },
+                {
+                    "id": compliance.id,
+                    "username": "compliance_user",
+                    "fullName": "Mira Rao",
+                    "role": Roles.COMPLIANCE_OFFICER,
+                },
+            ],
+        )
+
+        self.assertNotIn(admin.id, [entry["id"] for entry in response.data["data"]])
+        self.assertNotIn(auditor.id, [entry["id"] for entry in response.data["data"]])
+        self.assertNotIn(disabled_user.id, [entry["id"] for entry in response.data["data"]])
+
     def test_list_users_as_administrator_allowed(self):
         superuser = User.objects.create_superuser(username="admin_user", password="password123", email="admin@example.com")
         self.client.force_authenticate(user=superuser)
@@ -148,4 +203,3 @@ class AccountsRBACTests(TestCase):
         response = self.client.delete(f"/api/users/{analyst.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(User.objects.filter(id=analyst.id).exists())
-

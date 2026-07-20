@@ -1,5 +1,6 @@
 import time
 import hashlib
+import logging
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Avg, Count
@@ -38,6 +39,7 @@ from documents.models import (
 from .constants import SEARCHABLE_FIELDS
 from .utils import success_response, error_response
 from .serializers import (
+    AuditorCreateSerializer,
     AuditorRetrieveSerializer,
     AuditorUpdateSerializer,
     AuditorStatusSerializer
@@ -58,6 +60,8 @@ from documents.services.log_export_service import (
 
 MAX_EXTERNAL_RESULTS = 50
 MAX_INTERNAL_RESULTS = 50
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------
@@ -698,25 +702,49 @@ class AuditorListCreateView(APIView):
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsAuthenticated(), IsAdministrator()]
-        return [IsAuthenticated(), (IsAdministrator | IsComplianceOfficer)()]
+        return [AllowAny()]
 
     def get(self, request):
         try:
             queryset = Auditor.objects.all()
+
+            is_public_directory = not getattr(request.user, "is_authenticated", False)
+            if is_public_directory:
+                queryset = queryset.filter(status="ACTIVE")
 
             search_query = request.query_params.get("search")
             if search_query:
                 from django.db.models import Q
                 queryset = queryset.filter(
                     Q(name__icontains=search_query) |
+                    Q(organization_name__icontains=search_query) |
+                    Q(organization_code__icontains=search_query) |
                     Q(email__icontains=search_query) |
                     Q(designation__icontains=search_query) |
                     Q(phone__icontains=search_query)
                 )
 
             status_filter = request.query_params.get("status")
-            if status_filter:
+            if status_filter and not is_public_directory:
                 queryset = queryset.filter(status=status_filter)
+
+            if is_public_directory:
+                public_data = [
+                    {
+                        "auditor_id": auditor.id,
+                        "name": auditor.name,
+                        "organization_name": getattr(auditor, "organization_name", None) or auditor.designation or auditor.name,
+                        "organization_code": getattr(auditor, "organization_code", None),
+                        "username": getattr(auditor, "username", None),
+                        "active_key_version": auditor.key_version,
+                        "status": auditor.status,
+                    }
+                    for auditor in queryset
+                ]
+                return Response(
+                    success_response(data=public_data),
+                    status=status.HTTP_200_OK
+                )
 
             serializer = AuditorRetrieveSerializer(queryset, many=True)
             return Response(
@@ -730,42 +758,28 @@ class AuditorListCreateView(APIView):
             )
 
     def post(self, request):
-        name = request.data.get("name")
-        email = request.data.get("email")
-        phone = request.data.get("phone")
-        designation = request.data.get("designation")
-        status_val = request.data.get("status", "ACTIVE")
-
-        if not name:
+        serializer = AuditorCreateSerializer(data=request.data)
+        if not serializer.is_valid():
             return Response(
-                error_response("MISSING_NAME", "Auditor name required"),
+                error_response(
+                    code="VALIDATION_ERROR",
+                    message="Invalid request data.",
+                    details=serializer.errors
+                ),
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-            if email and Auditor.objects.filter(email__iexact=email).exists():
-                return Response(
-                    error_response("VALIDATION_ERROR", "An auditor with this email already exists.", {"email": ["An auditor with this email already exists."]}),
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            if Auditor.objects.filter(name__iexact=name).exists():
-                return Response(
-                    error_response("VALIDATION_ERROR", "An auditor with this name already exists.", {"name": ["An auditor with this name already exists."]}),
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             res = create_auditor_with_identity(
-                name=name,
-                email=email,
-                phone=phone,
-                designation=designation,
-                status=status_val
+                **serializer.validated_data
             )
             return Response(
                 success_response(
                     data={
                         "auditor_id": res["auditor"].id,
                         "name": res["auditor"].name,
+                        "organization_name": res["auditor"].organization_name,
+                        "organization_code": res["auditor"].organization_code,
                         "email": res["auditor"].email,
                         "phone": res["auditor"].phone,
                         "designation": res["auditor"].designation,
@@ -780,6 +794,10 @@ class AuditorListCreateView(APIView):
                 status=status.HTTP_201_CREATED
             )
         except Exception as e:
+            logger.exception(
+                "Failed to create auditor via /api/auditors/ with payload keys=%s",
+                sorted(request.data.keys()) if hasattr(request.data, "keys") else type(request.data).__name__,
+            )
             return Response(
                 error_response("AUDITOR_CREATION_FAILED", f"Failed to create auditor: {str(e)}"),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

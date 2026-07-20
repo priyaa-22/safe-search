@@ -1,6 +1,36 @@
 import axios from "axios";
 
-export const API_BASE_URL = "https://safe-search-e9jp.onrender.com";
+const PROD_API_BASE_URL = "https://safe-search-e9jp.onrender.com";
+const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
+
+function resolveApiBaseUrl() {
+  const envOverride = import.meta.env.VITE_API_BASE_URL;
+  if (envOverride) {
+    return envOverride;
+  }
+
+  if (typeof window === "undefined") {
+    return PROD_API_BASE_URL;
+  }
+
+  const { hostname } = window.location;
+  const isLocalFrontend =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname.endsWith(".local");
+
+  if (isLocalFrontend) {
+    return LOCAL_API_BASE_URL;
+  }
+
+  if (hostname.endsWith(".vercel.app")) {
+    return PROD_API_BASE_URL;
+  }
+
+  return PROD_API_BASE_URL;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
